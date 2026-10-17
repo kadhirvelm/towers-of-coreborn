@@ -1,0 +1,312 @@
+import { randomUUID } from "node:crypto";
+import { mkdir, rm, writeFile } from "node:fs/promises";
+import { join } from "node:path";
+import { Injectable, InternalServerErrorException } from "@nestjs/common";
+import type { PlayableCardLoreSource } from "@towers-of-coreborn/api";
+import { AgentTool } from "@towers-of-coreborn/api";
+import sharp from "sharp";
+import { renderPlayableCardInstructions } from "src/asset-classes/playable-card/playableCardInstructions";
+import {
+  PLAYABLE_CARD_AGENT_MAX_STEPS,
+  PLAYABLE_CARD_IMAGE_FILE_NAME,
+  PLAYABLE_CARD_MANIFEST_FILE_NAME,
+} from "src/asset-classes/playable-card/playableCardSpec";
+import { PLAYABLE_CARD_STORAGE } from "src/asset-classes/playable-card/playableCardStorage";
+import {
+  createPlayableCardResearchTools,
+  type PlayableCardResearchState,
+  SEARCH_LORE_TOOL_ID,
+  SUBMIT_PLAYABLE_CARD_TOOL_ID,
+} from "src/asset-classes/playable-card/playableCardTools";
+import { readPlayableCardImage } from "src/asset-classes/playable-card/readPlayableCardImage";
+import type { PlayableCardDraft } from "src/asset-classes/playable-card/validatePlayableCardDraft";
+import {
+  ASSET_CLASS_COORDINATOR_MODEL,
+  type TowersOfCorebornAgentChatResults,
+  TowersOfCorebornAgentService,
+} from "src/mastra/shared/towersOfCorebornAgent.service";
+import {
+  collectImageFilePaths,
+  deleteImageFiles,
+  type GeneratedImage,
+} from "src/mastra/tools/generateImageTool.service";
+import { ProductNowMcpService } from "src/product-now-mcp/product-now-mcp.service";
+import { runWithProductNowSession } from "src/product-now-mcp/productNowSessionContext";
+import { GenerationAbortCoordinator } from "../generationAbort.coordinator";
+import {
+  GenerationCancelledException,
+  isGenerationAbort,
+  throwIfAborted,
+} from "../generationCancelled";
+import type { QueryableAgent } from "../queryableAgent";
+
+const MIN_IMAGE_EDGE_PX = 64;
+
+/**
+ * Registered catalog tools this agent calls.
+ * Lore search and card submission are built per query because they close over
+ * the browser's ProductNow session.
+ */
+export enum CardGeneratorAgentTool {
+  // biome-ignore lint/style/useLiteralEnumMembers: value is the shared AgentTool id
+  ConsultProductNow = AgentTool.ConsultProductNow,
+  // biome-ignore lint/style/useLiteralEnumMembers: value is the shared AgentTool id
+  GenerateImage = AgentTool.GenerateImage,
+}
+
+/**
+ * Input for one card-generator query.
+ */
+export interface CardGeneratorInput {
+  /** Client id used to stop this run */
+  generationId: string;
+  /** What the player asked the card to be about */
+  prompt: string;
+  /** Browser session that holds the ProductNow OAuth tokens */
+  sessionId: string;
+}
+
+/**
+ * Result of one card-generator query.
+ */
+export interface CardGeneratorResult {
+  /** Folder name of the saved card */
+  cardId: string;
+}
+
+/**
+ * Card-generator agent. Call {@link CardGeneratorAgent.query} with a prompt
+ * and the browser's ProductNow session. It gives the Mastra agent
+ * `consult-productnow`, Lore search, card submission, and `generate-image`.
+ * `consult-productnow` runs the ProductNow research subagent. The
+ * instructions carry the combat rules and the watercolor prompt the image
+ * tool must receive.
+ *
+ * @example
+ * ```typescript
+ * const result = await cardGeneratorAgent.query({
+ *   generationId,
+ *   prompt: "a card about the first Coreborn bond",
+ *   sessionId,
+ * });
+ * result.cardId;
+ * ```
+ */
+@Injectable()
+export class CardGeneratorAgent
+  implements QueryableAgent<CardGeneratorInput, CardGeneratorResult>
+{
+  public constructor(
+    private readonly agents: TowersOfCorebornAgentService,
+    private readonly productNowMcpService: ProductNowMcpService,
+    private readonly generationAbort: GenerationAbortCoordinator,
+  ) {}
+
+  /**
+   * Stops an in-flight card generation on whichever process is running it.
+   * @param generationId - Id passed to {@link CardGeneratorAgent.query}
+   * @returns Whether the stop was recorded
+   */
+  public abort(generationId: string): Promise<boolean> {
+    return this.generationAbort.stop(generationId);
+  }
+
+  /**
+   * Searches Lore, writes the card, paints it, and stores the set.
+   * @param input - User prompt, ProductNow session, and the id that can stop it
+   * @returns The saved card id
+   * @throws GenerationCancelledException when the run is stopped
+   * @throws InternalServerErrorException when research or painting fails
+   */
+  public async query(input: CardGeneratorInput): Promise<CardGeneratorResult> {
+    const run = await this.generationAbort.begin(input.generationId);
+    const state: PlayableCardResearchState = { loreSources: [] };
+    let imagePaths: string[] = [];
+    try {
+      throwIfAborted(run.signal);
+      const result = await runWithProductNowSession(input.sessionId, () =>
+        this.agents.runChatWithTools({
+          abortSignal: run.signal,
+          agentConfig: {
+            id: "card-generator-agent",
+            instructions: renderPlayableCardInstructions(),
+            maxSteps: PLAYABLE_CARD_AGENT_MAX_STEPS,
+            model: [{ model: ASSET_CLASS_COORDINATOR_MODEL }],
+            name: "card-generator-agent",
+          },
+          prompt: `Create one playable card from this request:\n${input.prompt}`,
+          tools: {
+            ...this.agents.towersOfCorebornAgentToolRegistry.buildTools(
+              CardGeneratorAgentTool,
+            ),
+            ...createPlayableCardResearchTools({
+              productNow: this.productNowMcpService,
+              sessionId: input.sessionId,
+              signal: run.signal,
+              state,
+            }),
+          },
+        }),
+      );
+      imagePaths = result.toolResults.flatMap((call) =>
+        collectImageFilePaths(call.result),
+      );
+      throwIfAborted(run.signal);
+      const painted = readPaintedCard(result, state);
+      const cardId = await this.storeCard({
+        draft: painted.draft,
+        image: painted.image,
+        loreSources: state.loreSources,
+        prompt: input.prompt,
+        signal: run.signal,
+      });
+      return { cardId };
+    } catch (error) {
+      if (isGenerationAbort(error, run.signal)) {
+        throw new GenerationCancelledException();
+      }
+      throw error;
+    } finally {
+      await deleteImageFiles(imagePaths);
+      await run.end();
+    }
+  }
+
+  /**
+   * Copies the portrait into a card directory and writes the manifest.
+   * The directory is removed when saving fails.
+   * @param params - Accepted card, Lore passages, and the painted file
+   * @returns Saved card id
+   */
+  private async storeCard(params: {
+    draft: PlayableCardDraft;
+    image: GeneratedImage;
+    loreSources: PlayableCardLoreSource[];
+    prompt: string;
+    signal: AbortSignal;
+  }): Promise<string> {
+    throwIfAborted(params.signal);
+    const cardId = randomUUID();
+    const directory = PLAYABLE_CARD_STORAGE.filePath(cardId);
+    await mkdir(directory, { recursive: true });
+
+    try {
+      await persistIllustration(params.image.filePath, directory);
+      throwIfAborted(params.signal);
+      await writeManifest({
+        cardId,
+        directory,
+        draft: params.draft,
+        loreSources: params.loreSources,
+        prompt: params.prompt,
+      });
+      return cardId;
+    } catch (error) {
+      await rm(directory, { force: true, recursive: true });
+      throw error;
+    }
+  }
+}
+
+/**
+ * Requires a Lore-backed draft and one successful generate-image call.
+ * A tool error wins over a later success.
+ * @param result - Text, tool results, and tool errors from the agent run
+ * @param state - Draft and passages the research tools recorded
+ * @returns The accepted card and the portrait file
+ * @throws InternalServerErrorException when research or painting did not finish
+ */
+function readPaintedCard(
+  result: TowersOfCorebornAgentChatResults,
+  state: PlayableCardResearchState,
+): { draft: PlayableCardDraft; image: GeneratedImage } {
+  const failedTool = result.toolErrors.find(
+    (error) =>
+      error.toolName === AgentTool.GenerateImage ||
+      error.toolName === SEARCH_LORE_TOOL_ID ||
+      error.toolName === SUBMIT_PLAYABLE_CARD_TOOL_ID,
+  );
+  if (failedTool !== undefined) {
+    throw new InternalServerErrorException(
+      `Playable card generation failed: ${failedTool.errorMessage}`,
+    );
+  }
+
+  if (state.draft === undefined || state.loreSources.length === 0) {
+    throw new InternalServerErrorException(
+      "Playable card generation did not submit a Lore-backed card.",
+    );
+  }
+
+  const imageCall = result.toolResults.find(
+    (call) => call.toolName === AgentTool.GenerateImage,
+  );
+  if (imageCall === undefined) {
+    throw new InternalServerErrorException(
+      "Playable card generation failed: the agent finished without calling generate-image.",
+    );
+  }
+
+  return {
+    draft: state.draft,
+    image: readPlayableCardImage(imageCall.result),
+  };
+}
+
+/**
+ * Re-encodes a model image as PNG into the card directory.
+ * @param generatedPath - Temp path returned by the generate-image tool
+ * @param directory - Card directory
+ */
+async function persistIllustration(
+  generatedPath: string,
+  directory: string,
+): Promise<void> {
+  const png = await sharp(generatedPath).png().toBuffer();
+  const metadata = await sharp(png).metadata();
+  const width = metadata.width ?? 0;
+  const height = metadata.height ?? 0;
+  if (width < MIN_IMAGE_EDGE_PX || height < MIN_IMAGE_EDGE_PX) {
+    throw new InternalServerErrorException(
+      `Generated card image was ${width}x${height}, below ${MIN_IMAGE_EDGE_PX}px.`,
+    );
+  }
+
+  await writeFile(join(directory, PLAYABLE_CARD_IMAGE_FILE_NAME), png);
+}
+
+/**
+ * @param params - Card text, Lore passages, and destination
+ */
+async function writeManifest(params: {
+  cardId: string;
+  directory: string;
+  draft: PlayableCardDraft;
+  loreSources: PlayableCardLoreSource[];
+  prompt: string;
+}): Promise<void> {
+  const firstEffect = params.draft.effects[0];
+  if (firstEffect === undefined) {
+    throw new InternalServerErrorException(
+      "Playable card generation accepted a card with no effects.",
+    );
+  }
+
+  const manifest = {
+    aetherCost: params.draft.aetherCost,
+    cardId: params.cardId,
+    createdAt: new Date().toISOString(),
+    description: params.draft.description,
+    effects: params.draft.effects,
+    imageFileName: PLAYABLE_CARD_IMAGE_FILE_NAME,
+    kind: firstEffect.kind,
+    loreSources: params.loreSources,
+    name: params.draft.name,
+    prompt: params.prompt,
+  };
+
+  await writeFile(
+    join(params.directory, PLAYABLE_CARD_MANIFEST_FILE_NAME),
+    JSON.stringify(manifest, null, 2),
+  );
+}

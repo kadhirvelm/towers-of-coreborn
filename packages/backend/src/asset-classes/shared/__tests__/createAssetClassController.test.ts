@@ -18,6 +18,10 @@ describe("createAssetClassController", () => {
   const cardController = createAssetClassController(
     CardCharacterServiceDefinition,
     class CardCharacterService {
+      public cancel() {
+        return Promise.resolve({ stopped: false });
+      }
+
       public generate() {
         return Promise.resolve({
           createdAt: "",
@@ -37,6 +41,10 @@ describe("createAssetClassController", () => {
   const widgetController = createAssetClassController(
     widgetDefinition,
     class WidgetService {
+      public cancel() {
+        return Promise.resolve({ stopped: false });
+      }
+
       public generate() {
         return Promise.resolve({
           createdAt: "",
@@ -53,11 +61,15 @@ describe("createAssetClassController", () => {
     },
   );
 
-  test("registers generate and list on the class's own controller path", () => {
+  test("registers generate, cancel, and list on the class's own controller path", () => {
     expect(cardController.name).toBe("CardCharactersController");
     expect(Reflect.getMetadata(PATH_METADATA, cardController)).toBe(
       "card-characters",
     );
+    expect(routeOf(cardController, "cancel")).toEqual({
+      method: RequestMethod.POST,
+      path: "cancel",
+    });
     expect(routeOf(cardController, "generate")).toEqual({
       method: RequestMethod.POST,
       path: "generate",

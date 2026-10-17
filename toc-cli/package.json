@@ -14,7 +14,7 @@
   },
   "name": "@towers-of-coreborn/toc-cli",
   "scripts": {
-    "build": "tsc",
+    "build": "tsc && chmod +x dist/index.js",
     "check": "tsc --noEmit",
     "dev": "tsc --watch",
     "lint": "biome check"

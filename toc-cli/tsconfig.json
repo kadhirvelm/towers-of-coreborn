@@ -20,6 +20,7 @@
     "strictBindCallApply": true,
     "strictNullChecks": true,
     "target": "ES2021",
+    "tsBuildInfoFile": "./dist/.tsbuildinfo",
     "types": ["node", "bun"]
   },
   "exclude": ["dist"],

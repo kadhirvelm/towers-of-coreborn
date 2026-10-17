@@ -11,6 +11,8 @@ export const DEFAULT_LOCAL_ENV_VALUES: Record<string, string> = {
   DATABASE_HOST_URL: `postgresql://postgres:${defaultPostgresPassword}@localhost:5432/towers-of-coreborn?schema=public`,
   FRONTEND_URL: "https://localhost:3000",
   GEMINI_CREDENTIALS: "replace-with-local-credentials",
+  // Keep identical to LOCAL_MCP_OAUTH_ENCRYPTION_KEY in the backend configuration service.
+  MCP_OAUTH_ENCRYPTION_KEY: "yw13/hsuCffB/07HoMSLPJ4y1CdwEWFxSvqAn1/PlYA=",
   NODE_ENV: "development",
   OPENAI_API_KEY: "replace-with-local-credentials",
   OPENOBSERVE_ROOT_USER_EMAIL: "root@example.com",

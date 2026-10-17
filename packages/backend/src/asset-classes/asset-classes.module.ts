@@ -1,11 +1,13 @@
 import { Module } from "@nestjs/common";
+import { BattleBackgroundModule } from "./battle-background/battle-background.module";
 import { CardCharacterModule } from "./card-character/card-character.module";
+import { PlayableCardModule } from "./playable-card/playable-card.module";
 
 /**
  * Every generatable asset class. Each class is a self-contained module with
  * its own controller (`generate` + `list`), coordinator agent, tool, and storage folder.
  */
 @Module({
-  imports: [CardCharacterModule],
+  imports: [BattleBackgroundModule, CardCharacterModule, PlayableCardModule],
 })
 export class AssetClassesModule {}

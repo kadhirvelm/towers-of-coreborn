@@ -1,5 +1,6 @@
 "use client";
 
+import { isServiceError } from "@towers-of-coreborn/api";
 import { useCallback, useState } from "react";
 import { convertErrorToString } from "@/lib/convertErrorToString";
 import { useClientServiceCallers } from "@/services/clientServiceCallers";
@@ -10,6 +11,7 @@ import {
   dismissAssetGenerationJob,
   failAssetGenerationJob,
   jobsForAssetClass,
+  markAssetGenerationJobStopping,
   refreshKeyForAssetClass,
   startAssetGenerationJob,
 } from "./assetGenerationJobs";
@@ -18,7 +20,7 @@ import type { PendingJob } from "./PendingJobCard";
 /**
  * Tracks generation requests across every asset class. Several jobs can run
  * at once; each finished job bumps its class's refresh key so the gallery refetches.
- * @returns Job lists, refresh keys, and actions to start or dismiss a job
+ * @returns Job lists, refresh keys, and actions to start, stop, or dismiss a job
  */
 export function useAssetGenerationJobs() {
   const { clientServiceCallers } = useClientServiceCallers();
@@ -40,7 +42,7 @@ export function useAssetGenerationJobs() {
       );
 
       assetClass
-        .generate(clientServiceCallers, prompt)
+        .generate(clientServiceCallers, prompt, id)
         .then((result) => {
           setState((previous) =>
             applyGenerationResult(previous, {
@@ -51,10 +53,33 @@ export function useAssetGenerationJobs() {
           );
         })
         .catch((error: unknown) => {
-          setState((previous) =>
-            failAssetGenerationJob(previous, id, convertErrorToString(error)),
-          );
+          setState((previous) => {
+            const job = previous.jobs.find((entry) => entry.id === id);
+            if (job?.stopping === true) {
+              return dismissAssetGenerationJob(previous, id);
+            }
+            return failAssetGenerationJob(
+              previous,
+              id,
+              convertErrorToString(error),
+            );
+          });
         });
+    },
+    [clientServiceCallers],
+  );
+
+  const stopJob = useCallback(
+    (assetClass: AssetClassDefinition, jobId: string) => {
+      setState((previous) => markAssetGenerationJobStopping(previous, jobId));
+      assetClass.cancel(clientServiceCallers, jobId).then((result) => {
+        if (!isServiceError(result)) {
+          return;
+        }
+        setState((previous) =>
+          failAssetGenerationJob(previous, jobId, convertErrorToString(result)),
+        );
+      });
     },
     [clientServiceCallers],
   );
@@ -78,5 +103,6 @@ export function useAssetGenerationJobs() {
     getJobsForClass,
     getRefreshKey,
     startJob,
+    stopJob,
   };
 }

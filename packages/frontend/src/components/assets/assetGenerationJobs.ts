@@ -1,10 +1,12 @@
-import { isServiceError } from "@towers-of-coreborn/api";
+import { isGenerationCancelled, isServiceError } from "@towers-of-coreborn/api";
 
 /** A generation request that is still running, or that failed and has not been dismissed. */
 export interface PendingJob {
   error: string | null;
   id: string;
   prompt: string;
+  /** True after the user asks this run to stop, until it settles */
+  stopping: boolean;
 }
 
 /** A pending job tagged with the asset class that owns it. */
@@ -44,6 +46,7 @@ export function startAssetGenerationJob(
         error: null,
         id: job.id,
         prompt: job.prompt,
+        stopping: false,
       },
     ],
   };
@@ -71,6 +74,30 @@ export function completeAssetGenerationJob(
       ...state.refreshKeys,
       [job.assetClassId]: (state.refreshKeys[job.assetClassId] ?? 0) + 1,
     },
+  };
+}
+
+/**
+ * Marks a running job as waiting for the backend to stop.
+ * A missing job, or one that already failed, is left alone.
+ * @param state - Current jobs
+ * @param jobId - Job the user asked to stop
+ * @returns State with that job's stopping flag set
+ */
+export function markAssetGenerationJobStopping(
+  state: AssetGenerationJobState,
+  jobId: string,
+): AssetGenerationJobState {
+  const job = state.jobs.find((entry) => entry.id === jobId);
+  if (job === undefined || job.error !== null) {
+    return state;
+  }
+
+  return {
+    ...state,
+    jobs: state.jobs.map((entry) =>
+      entry.id === jobId ? { ...entry, stopping: true } : entry,
+    ),
   };
 }
 
@@ -130,7 +157,14 @@ export function applyGenerationResult(
     result: unknown;
   },
 ): AssetGenerationJobState {
+  if (isGenerationCancelled(input.result)) {
+    return dismissAssetGenerationJob(state, input.jobId);
+  }
   if (isServiceError(input.result)) {
+    const job = state.jobs.find((entry) => entry.id === input.jobId);
+    if (job?.stopping === true) {
+      return dismissAssetGenerationJob(state, input.jobId);
+    }
     return failAssetGenerationJob(
       state,
       input.jobId,

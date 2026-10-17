@@ -6,7 +6,7 @@ import { ModelService } from "./model.service";
 import { OpenAIService } from "./openAI.service";
 
 @Module({
-  exports: [ModelService],
+  exports: [ModelService, OpenAIService],
   imports: [ConfigurationModule],
   providers: [ModelService, OpenAIService, GeminiService, AnthropicService],
 })

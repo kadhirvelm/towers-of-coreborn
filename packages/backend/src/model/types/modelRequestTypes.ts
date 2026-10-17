@@ -34,6 +34,10 @@ export interface ImageGenerationConfig {
 /** Note: not all options are supported by all providers. Please check the code to ensure the options are supported. */
 export interface ModelRequest<Provider extends AvailableProviders> {
   /**
+   * Stops the provider request when the caller aborts a generation.
+   */
+  abortSignal?: AbortSignal;
+  /**
    * The main prompt or input text to be sent to the model for completion.
    */
   prompt: string;

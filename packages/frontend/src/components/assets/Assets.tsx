@@ -16,7 +16,7 @@ import { useAssetGenerationJobs } from "./useAssetGenerationJobs";
 export function Assets() {
   const [activeClassId, setActiveClassId] = useState(ASSET_CLASSES[0]?.id);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
-  const { dismissJob, getJobsForClass, getRefreshKey, startJob } =
+  const { dismissJob, getJobsForClass, getRefreshKey, startJob, stopJob } =
     useAssetGenerationJobs();
 
   const activeClass =
@@ -77,6 +77,7 @@ export function Assets() {
       <Gallery
         key={activeClass.id}
         onDismissJob={dismissJob}
+        onStopJob={(jobId) => stopJob(activeClass, jobId)}
         pendingJobs={activeJobs}
         refreshKey={getRefreshKey(activeClass.id)}
       />

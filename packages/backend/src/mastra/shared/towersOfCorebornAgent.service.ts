@@ -1,13 +1,22 @@
 import { type AgentExecutionOptionsBase, ToolsInput } from "@mastra/core/agent";
+import { RequestContext } from "@mastra/core/request-context";
 import { FullOutput } from "@mastra/core/stream";
 import {
   Injectable,
   InternalServerErrorException,
   Logger,
 } from "@nestjs/common";
-import { ToolId } from "@towers-of-coreborn/api";
+import { type AgentToolSelection } from "@towers-of-coreborn/api";
 import { ConfigurationService } from "src/configuration/configuration.service";
+import {
+  PRODUCT_NOW_SESSION_REQUEST_KEY,
+  readActiveProductNowSession,
+} from "src/product-now-mcp/productNowSessionContext";
 import { z } from "zod";
+import {
+  GenerationCancelledException,
+  isGenerationAbort,
+} from "../agents/generationCancelled";
 import { formatToolErrorMessage } from "./formatToolErrorMessage";
 import { resolveSingleToolChat } from "./resolveSingleToolChat";
 import {
@@ -34,7 +43,7 @@ export type UnresolvedTowersOfCorebornAgentConfig = Omit<
 /**
  * Input parameters for a non-streaming TowersOfCorebornAgent generate call.
  * @property agentConfig - Configuration settings for the TowersOfCorebornAgent instance.
- * @property tools - Tool IDs to make available to the agent (empty array for no tools).
+ * @property tools - Tool ids or an agent tool enum. Omit or pass an empty list for no tools.
  * @property prompt - The user input or system prompt for the agent to process.
  */
 export interface TowersOfCorebornAgentGenerateInput {
@@ -43,9 +52,9 @@ export interface TowersOfCorebornAgentGenerateInput {
    */
   agentConfig: UnresolvedTowersOfCorebornAgentConfig;
   /**
-   * Tool IDs to make available to the agent (empty array for no tools).
+   * Tool ids, or an enum of them declared on the agent. Omit or pass an empty list for no tools.
    */
-  tools?: ToolId[];
+  tools?: AgentToolSelection;
   /**
    * The user input or system prompt for the agent to process.
    */
@@ -74,14 +83,16 @@ export interface TowersOfCorebornAgentGenerateWithToolsInput {
  * @property prompt - The user input or system prompt for the agent to process.
  */
 export interface TowersOfCorebornAgentChatInput {
+  /** Stops the chat and its tools when the caller aborts the generation. */
+  abortSignal?: AbortSignal;
   /**
    * Configuration settings for the TowersOfCorebornAgent instance.
    */
   agentConfig: UnresolvedTowersOfCorebornAgentConfig;
   /**
-   * Tool IDs to make available to the agent (empty array for no tools).
+   * Tool ids, or an enum of them declared on the agent.
    */
-  tools: ToolId[];
+  tools: AgentToolSelection;
   /**
    * The user input or system prompt for the agent to process.
    */
@@ -136,16 +147,62 @@ export interface TowersOfCorebornAgentChatResults {
 
 /**
  * Input for a chat whose only job is to call one caller-owned tool.
+ * Shared tools belong on {@link AgentTool} and are passed as an enum to
+ * {@link TowersOfCorebornAgentService#runGenerationCoordinator}.
  * @property outputLabel - Human-readable name used in error messages, e.g. "Sprite sheet generation"
  * @property readToolOutput - Narrows the tool's raw result; throw when the shape is wrong
  */
 export interface TowersOfCorebornAgentSingleToolChatInput<ToolOutput> {
+  /** Stops the coordinator and its tool when the caller aborts the generation. */
+  abortSignal?: AbortSignal;
   agentConfig: UnresolvedTowersOfCorebornAgentConfig;
   outputLabel: string;
   prompt: string;
   readToolOutput: (rawResult: unknown) => ToolOutput;
   tool: ToolsInput[string];
   toolId: string;
+}
+
+/**
+ * Shared fields for an asset-class coordinator run.
+ */
+interface GenerationCoordinatorInput<ToolOutput> {
+  /** Stops the coordinator and its tools when the caller aborts the generation. */
+  abortSignal?: AbortSignal;
+  /** Subagents this coordinator can delegate to, keyed by the name Mastra turns into `agent-<key>`. */
+  agents?: TowersOfCorebornAgentConfig["agents"];
+  agentId: string;
+  instructions: string;
+  model?: MixedModelEntry | MixedModelEntry[];
+  outputLabel: string;
+  prompt: string;
+  readToolOutput: (rawResult: unknown) => ToolOutput;
+  /** Steps for this run. Defaults to one tool call and a short reply. */
+  maxSteps?: number;
+  /** Tool whose result this run requires */
+  toolId: string;
+}
+
+/**
+ * Coordinator input that loads tools from the shared registry.
+ */
+export interface RegistryGenerationCoordinatorInput<ToolOutput>
+  extends GenerationCoordinatorInput<ToolOutput> {
+  /** Tool enum declared on the agent. The runner loads these from the registry. */
+  tools: AgentToolSelection;
+}
+
+/**
+ * Coordinator input for one tool the caller owns and that is not in the catalog.
+ */
+export interface OwnedToolGenerationCoordinatorInput<ToolOutput>
+  extends GenerationCoordinatorInput<ToolOutput> {
+  /**
+   * Extra catalog tools loaded from the registry.
+   * The owned tool is still the one `toolId` requires.
+   */
+  catalogTools?: AgentToolSelection;
+  tool: ToolsInput[string];
 }
 
 /**
@@ -161,9 +218,9 @@ const DEFAULT_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes
 
 /**
  * Coordinator model for asset-class agents. A class can pass a different model
- * to {@link TowersOfCorebornAgentService.runGenerationCoordinator}.
+ * to {@link TowersOfCorebornAgentService#runGenerationCoordinator}.
  */
-export const ASSET_CLASS_COORDINATOR_MODEL = "anthropic/claude-sonnet-4-5";
+export const ASSET_CLASS_COORDINATOR_MODEL = "openai/gpt-6-astra";
 
 /** How many steps a generation coordinator gets: one tool call, then a short reply. */
 const GENERATION_COORDINATOR_MAX_STEPS = 2;
@@ -190,6 +247,24 @@ export class TowersOfCorebornAgentService {
     public readonly towersOfCorebornAgentToolRegistry: TowersOfCorebornAgentToolRegistry,
     public readonly configurationService: ConfigurationService,
   ) {}
+
+  /**
+   * Builds an agent with a resolved model and caller-supplied tools.
+   * Use this when the tools are not in the shared registry, such as
+   * ProductNow MCP tools loaded for one browser session.
+   * @param config - Agent config, including tools the caller already built
+   * @returns An agent ready to run or to pass to a coordinator as a subagent
+   */
+  public createAgent(
+    config: UnresolvedTowersOfCorebornAgentConfig & {
+      tools?: TowersOfCorebornAgentConfig["tools"];
+    },
+  ): TowersOfCorebornAgent {
+    return new TowersOfCorebornAgent({
+      ...config,
+      model: this.resolveModelConfigs(config.model),
+    });
+  }
 
   /**
    * Executes a non-streaming generate call with the TowersOfCorebornAgent.
@@ -253,6 +328,7 @@ export class TowersOfCorebornAgentService {
     input: TowersOfCorebornAgentChatInput,
   ): Promise<TowersOfCorebornAgentChatResults> {
     return this.streamChat({
+      abortSignal: input.abortSignal,
       agentConfig: input.agentConfig,
       prompt: input.prompt,
       tools: this.towersOfCorebornAgentToolRegistry.buildTools(input.tools),
@@ -260,9 +336,25 @@ export class TowersOfCorebornAgentService {
   }
 
   /**
+   * Runs a chat with tools the caller already built.
+   * Use this when a run needs catalog tools plus tools that close over
+   * per-request context, such as a ProductNow session.
+   * @param input - Agent config, prompt, and tools keyed by the id the model calls
+   * @returns Generated text plus the tool results and tool errors observed during the run
+   */
+  public async runChatWithTools(input: {
+    abortSignal?: AbortSignal;
+    agentConfig: UnresolvedTowersOfCorebornAgentConfig;
+    prompt: string;
+    tools: ToolsInput;
+  }): Promise<TowersOfCorebornAgentChatResults> {
+    return this.streamChat(input);
+  }
+
+  /**
    * Runs a coordinator agent that must call exactly one caller-owned tool.
-   * Asset-class agents use this so each class owns its tool without touching
-   * the shared tool registry.
+   * Use this when the tool is not in the shared catalog. Catalog tools are
+   * passed as an enum to {@link TowersOfCorebornAgentService#runGenerationCoordinator}.
    *
    * @param input - Agent config, prompt, the tool, and how to read its result
    * @returns The narrowed tool output and the agent's closing text
@@ -272,6 +364,7 @@ export class TowersOfCorebornAgentService {
     input: TowersOfCorebornAgentSingleToolChatInput<ToolOutput>,
   ): Promise<TowersOfCorebornAgentSingleToolChatResult<ToolOutput>> {
     const result = await this.streamChat({
+      abortSignal: input.abortSignal,
       agentConfig: input.agentConfig,
       prompt: input.prompt,
       tools: { [input.toolId]: input.tool },
@@ -286,36 +379,71 @@ export class TowersOfCorebornAgentService {
   }
 
   /**
-   * Runs the standard asset-class coordinator: one model, two steps, one tool.
-   * Classes pass their own instructions, tool, and result reader.
-   * @param input - Agent id, instructions, prompt, tool, and how to read its result
+   * Runs the standard asset-class coordinator: one model, two steps.
+   * Pass the agent's tool enum as `tools`. This loads those tools from the
+   * registry and requires a call to `toolId`. Pass `tool` instead only when
+   * that tool is owned by the caller and is not in the catalog.
+   * @param input - Agent id, instructions, prompt, tools, and how to read the required result
    * @returns The narrowed tool output and the agent's closing text
-   * @throws InternalServerErrorException when the tool failed or was never called
+   * @throws InternalServerErrorException when the tool failed, was never called, or is not in the tools given to the agent
    */
-  public runGenerationCoordinator<ToolOutput>(input: {
-    agentId: string;
-    instructions: string;
-    model?: MixedModelEntry | MixedModelEntry[];
-    outputLabel: string;
-    prompt: string;
-    readToolOutput: (rawResult: unknown) => ToolOutput;
-    tool: ToolsInput[string];
-    toolId: string;
-  }): Promise<TowersOfCorebornAgentSingleToolChatResult<ToolOutput>> {
-    return this.runSingleToolChat({
+  public async runGenerationCoordinator<ToolOutput>(
+    input:
+      | RegistryGenerationCoordinatorInput<ToolOutput>
+      | OwnedToolGenerationCoordinatorInput<ToolOutput>,
+  ): Promise<TowersOfCorebornAgentSingleToolChatResult<ToolOutput>> {
+    const result = await this.streamChat({
+      abortSignal: input.abortSignal,
       agentConfig: {
+        ...(input.agents === undefined ? {} : { agents: input.agents }),
         id: input.agentId,
         instructions: input.instructions,
-        maxSteps: GENERATION_COORDINATOR_MAX_STEPS,
+        maxSteps: input.maxSteps ?? GENERATION_COORDINATOR_MAX_STEPS,
         model: input.model ?? [{ model: ASSET_CLASS_COORDINATOR_MODEL }],
         name: input.agentId,
       },
-      outputLabel: input.outputLabel,
       prompt: input.prompt,
+      tools: this.coordinatorTools(input),
+    });
+
+    return resolveSingleToolChat({
+      outputLabel: input.outputLabel,
       readToolOutput: input.readToolOutput,
-      tool: input.tool,
+      result,
       toolId: input.toolId,
     });
+  }
+
+  /**
+   * Loads catalog tools, or wraps one caller-owned tool.
+   * @param input - Coordinator input with either a tool enum or one owned tool
+   * @returns Tools keyed by the id the model calls
+   * @throws InternalServerErrorException when the required tool is not among the loaded tools
+   */
+  private coordinatorTools<ToolOutput>(
+    input:
+      | RegistryGenerationCoordinatorInput<ToolOutput>
+      | OwnedToolGenerationCoordinatorInput<ToolOutput>,
+  ): ToolsInput {
+    if ("tool" in input) {
+      const catalog =
+        input.catalogTools === undefined
+          ? {}
+          : this.towersOfCorebornAgentToolRegistry.buildTools(
+              input.catalogTools,
+            );
+      return { ...catalog, [input.toolId]: input.tool };
+    }
+
+    const tools = this.towersOfCorebornAgentToolRegistry.buildTools(
+      input.tools,
+    );
+    if (tools[input.toolId] === undefined) {
+      throw new InternalServerErrorException(
+        `The ${input.toolId} tool is not included in the tools passed to ${input.agentId}.`,
+      );
+    }
+    return tools;
   }
 
   /**
@@ -325,6 +453,7 @@ export class TowersOfCorebornAgentService {
    * @returns Generated text plus observed tool results and errors
    */
   private async streamChat(input: {
+    abortSignal?: AbortSignal;
     agentConfig: UnresolvedTowersOfCorebornAgentConfig;
     prompt: string;
     tools: ToolsInput;
@@ -355,7 +484,9 @@ export class TowersOfCorebornAgentService {
     // a stalled LLM stream from leaving generatingBlueprints/generatingOutputs
     // stuck at true indefinitely — the AbortError propagates up to the caller's
     // catch block which pushes generating: false.
-    const mergedOptions = this.buildExecutionOptionsWithTimeout();
+    const mergedOptions = this.buildExecutionOptionsWithTimeout(
+      executionOptions(input.abortSignal, productNowRequestContext()),
+    );
 
     try {
       // Begin generating a streaming response based on the user/system prompt.
@@ -395,6 +526,10 @@ export class TowersOfCorebornAgentService {
 
       this.logger.debug(`${input.agentConfig.name} agent completed`);
 
+      if (input.abortSignal?.aborted) {
+        throw new GenerationCancelledException();
+      }
+
       if (output.error != null || output.finishReason === "error") {
         throw new InternalServerErrorException(
           output.error ??
@@ -409,6 +544,9 @@ export class TowersOfCorebornAgentService {
         toolResults,
       };
     } catch (streamError) {
+      if (isGenerationAbort(streamError, input.abortSignal)) {
+        throw new GenerationCancelledException();
+      }
       throw new InternalServerErrorException(
         `Agent ${input.agentConfig.name} stream failed: ${streamError instanceof Error ? streamError.message : String(streamError)}`,
       );
@@ -451,4 +589,37 @@ export class TowersOfCorebornAgentService {
       this.configurationService.get("GEMINI_CREDENTIALS");
     return resolveModelConfig(models, geminiCredentials);
   }
+}
+
+/**
+ * Combines the caller's abort signal with the ProductNow session, when either is set.
+ * Subagents read the session from the request context.
+ * @param abortSignal - Signal that stops this run
+ * @param requestContext - ProductNow session for this run, when the browser is connected
+ * @returns Mastra execution options, or `undefined` when there is nothing to forward
+ */
+function executionOptions(
+  abortSignal: AbortSignal | undefined,
+  requestContext: RequestContext | undefined,
+): AgentExecutionOptionsBase<unknown> | undefined {
+  if (abortSignal === undefined && requestContext === undefined) {
+    return undefined;
+  }
+  return {
+    ...(abortSignal === undefined ? {} : { abortSignal }),
+    ...(requestContext === undefined ? {} : { requestContext }),
+  };
+}
+
+/**
+ * @returns A request context carrying the browser's ProductNow session
+ */
+function productNowRequestContext(): RequestContext | undefined {
+  const sessionId = readActiveProductNowSession();
+  if (sessionId === undefined || sessionId === "") {
+    return undefined;
+  }
+  const requestContext = new RequestContext();
+  requestContext.setRaw(PRODUCT_NOW_SESSION_REQUEST_KEY, sessionId);
+  return requestContext;
 }

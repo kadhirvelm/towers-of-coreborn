@@ -53,6 +53,16 @@ export function ensureEnvFileInSync() {
     }),
   );
 
+  // Hostname overrides for `toc dev --network`. Kept even though they are not
+  // default local values, so a developer can pin them in `.env`. Shell exports
+  // still win at read time.
+  const ngrokSettings: Record<string, string> = {};
+  for (const [key, value] of Object.entries(envFileContentObject)) {
+    if (key.startsWith("NGROK_") && value !== "") {
+      ngrokSettings[key] = value;
+    }
+  }
+
   // Make sure to account for the locally loaded environment variables - used for CI
   // Process.env should take precedence over the file to allow CI overrides
   envFileContentObject = { ...envFileContentObject, ...process.env } as Record<
@@ -91,11 +101,20 @@ export function ensureEnvFileInSync() {
   const secretsAsString = Object.entries(secrets)
     .map(([key, value]) => `${key}=${value}`)
     .join("\n");
+  const ngrokAsString = Object.entries(ngrokSettings)
+    .map(([key, value]) => `${key}=${value}`)
+    .join("\n");
 
-  writeFileSync(envFile, `${otherAsString}\n\n${secretsAsString}`);
+  writeFileSync(
+    envFile,
+    [otherAsString, secretsAsString, ngrokAsString]
+      .filter(Boolean)
+      .join("\n\n"),
+  );
 
   return {
     ...other,
     ...secrets,
+    ...ngrokSettings,
   };
 }

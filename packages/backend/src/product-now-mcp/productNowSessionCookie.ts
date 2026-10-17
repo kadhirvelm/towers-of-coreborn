@@ -1,0 +1,40 @@
+import { UnauthorizedException } from "@nestjs/common";
+import type { Request } from "express";
+
+/** Cookie that binds a browser to its ProductNow OAuth session. */
+export const PRODUCT_NOW_SESSION_COOKIE_NAME = "toc_productnow_session";
+
+/**
+ * Reads the ProductNow session cookie.
+ * @param request - Incoming Express request
+ * @returns The session id when the cookie is present
+ */
+export function readProductNowSessionId(request: Request): string | undefined {
+  const cookies = request.headers.cookie?.split(";") ?? [];
+  const prefix = `${PRODUCT_NOW_SESSION_COOKIE_NAME}=`;
+  const match = cookies
+    .map((cookie) => cookie.trim())
+    .find((cookie) => cookie.startsWith(prefix));
+  if (!match) {
+    return undefined;
+  }
+  const value = decodeURIComponent(match.slice(prefix.length));
+  if (value === "") {
+    return undefined;
+  }
+  return value;
+}
+
+/**
+ * Reads the ProductNow session cookie or rejects the request.
+ * @param request - Incoming Express request
+ * @returns Browser session identifier
+ * @throws UnauthorizedException when the browser has not started a ProductNow session
+ */
+export function requireProductNowSessionId(request: Request): string {
+  const sessionId = readProductNowSessionId(request);
+  if (!sessionId) {
+    throw new UnauthorizedException("Connect ProductNow first");
+  }
+  return sessionId;
+}

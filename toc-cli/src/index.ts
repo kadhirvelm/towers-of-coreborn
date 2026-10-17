@@ -32,7 +32,11 @@ program
   .description(
     "Runs the migrations, loads the environment and runs the development server",
   )
-  .option("--network", "Run the development server on the network", false)
+  .option(
+    "--network",
+    "Expose the development server publicly via ngrok tunnels (torn down on exit)",
+    false,
+  )
   .option("--reset", "Reset the Docker environment", false)
   .action(({ network, reset }: { network: boolean; reset: boolean }) =>
     dev(network, reset),
@@ -40,13 +44,10 @@ program
 
 program
   .command("open")
-  .description("Opens the frontend in the browser")
-  .option(
-    "--network",
-    "Open the frontend using the local network IP address",
-    false,
+  .description(
+    "Opens the frontend in the browser (FRONTEND_URL from .env when set)",
   )
-  .action(({ network }: { network: boolean }) => open(network));
+  .action(() => open());
 
 program
   .command("database")

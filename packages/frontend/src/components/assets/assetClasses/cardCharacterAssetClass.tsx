@@ -6,11 +6,19 @@ import { createAssetClassGallery } from "./createAssetClassGallery";
 
 const CardCharacterGallery = createAssetClassGallery({
   list: (callers) => callers.cardCharacter.list(),
-  render: ({ error, isLoading, onDismissJob, pendingJobs, result }) => (
+  render: ({
+    error,
+    isLoading,
+    onDismissJob,
+    onStopJob,
+    pendingJobs,
+    result,
+  }) => (
     <CardCharacterList
       error={error}
       isLoading={isLoading}
       onDismissJob={onDismissJob}
+      onStopJob={onStopJob}
       pendingJobs={pendingJobs}
       result={result}
     />
@@ -18,6 +26,8 @@ const CardCharacterGallery = createAssetClassGallery({
 });
 
 export const CARD_CHARACTER_ASSET_CLASS: AssetClassDefinition = {
+  cancel: (callers, generationId) =>
+    callers.cardCharacter.cancel({ generationId }),
   dialogDescription:
     "Describe a character. We'll paint four portraits of them facing you, each level stronger than the last.",
   dialogTitle: "Generate Card Character",
@@ -28,7 +38,8 @@ export const CARD_CHARACTER_ASSET_CLASS: AssetClassDefinition = {
     submitLabel: "Generate 4 levels",
   },
   Gallery: CardCharacterGallery,
-  generate: (callers, prompt) => callers.cardCharacter.generate({ prompt }),
+  generate: (callers, prompt, generationId) =>
+    callers.cardCharacter.generate({ generationId, prompt }),
   generateButtonLabel: "+ Generate character",
   id: "card-characters",
   subtitle: "card character generation",

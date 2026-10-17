@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { ServiceError } from "@towers-of-coreborn/api";
+import { GENERATION_CANCELLED_STATUS } from "@towers-of-coreborn/api";
 import {
   applyGenerationResult,
   completeAssetGenerationJob,
@@ -7,6 +8,7 @@ import {
   dismissAssetGenerationJob,
   failAssetGenerationJob,
   jobsForAssetClass,
+  markAssetGenerationJobStopping,
   refreshKeyForAssetClass,
   startAssetGenerationJob,
 } from "../assetGenerationJobs";
@@ -33,6 +35,7 @@ describe("asset generation jobs", () => {
         error: null,
         id: "card-1",
         prompt: "a knight",
+        stopping: false,
       },
     ]);
     expect(refreshKeyForAssetClass(finished, "other-class")).toBe(1);
@@ -56,6 +59,32 @@ describe("asset generation jobs", () => {
   test("refetches after a successful result and drops the job", () => {
     const started = startOther("other-1")(createAssetGenerationJobState());
     const finished = applyGenerationResult(started, {
+      errorMessage: () => "unused",
+      jobId: "other-1",
+      result: { fileName: "a.png" },
+    });
+
+    expect(jobsForAssetClass(finished, "other-class")).toEqual([]);
+    expect(refreshKeyForAssetClass(finished, "other-class")).toBe(1);
+  });
+
+  test("drops a job the user stopped without refetching", () => {
+    const started = startOther("other-1")(createAssetGenerationJobState());
+    const stopping = markAssetGenerationJobStopping(started, "other-1");
+    const cancelled = applyGenerationResult(stopping, {
+      errorMessage: () => "unused",
+      jobId: "other-1",
+      result: { ...serviceError, code: GENERATION_CANCELLED_STATUS },
+    });
+
+    expect(jobsForAssetClass(cancelled, "other-class")).toEqual([]);
+    expect(refreshKeyForAssetClass(cancelled, "other-class")).toBe(0);
+  });
+
+  test("keeps a finished asset when stop loses the race", () => {
+    const started = startOther("other-1")(createAssetGenerationJobState());
+    const stopping = markAssetGenerationJobStopping(started, "other-1");
+    const finished = applyGenerationResult(stopping, {
       errorMessage: () => "unused",
       jobId: "other-1",
       result: { fileName: "a.png" },

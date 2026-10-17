@@ -1,12 +1,15 @@
-import { writeFileSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   BadRequestException,
   Injectable,
   InternalServerErrorException,
 } from "@nestjs/common";
-import OpenAI from "openai";
+import OpenAI, { toFile } from "openai";
 import { ChatCompletionMessageParam } from "openai/resources/index";
 import { ConfigurationService } from "src/configuration/configuration.service";
+import { resolveOpenAIImageSize } from "./openAIImageSize";
 import {
   InputFile,
   ModelChatRequest,
@@ -24,6 +27,9 @@ const WEB_SEARCH_TOOL: OpenAI.Responses.Tool = {
 const MODELS_WITHOUT_WEB_SEARCH = new Set(["gpt-4.1-nano"]);
 
 const AUDIO_OUTPUT_MODELS = new Set(["gpt-audio", "gpt-audio-mini"]);
+
+/** Rendering quality for GPT Image requests. */
+const OPENAI_IMAGE_QUALITY = "high";
 
 @Injectable()
 export class OpenAIService {
@@ -54,7 +60,97 @@ export class OpenAIService {
     return this.openAIClient;
   }
 
+  /**
+   * One Responses API turn that uses only the tools the caller supplies.
+   * Text completion adds web search; this does not, so a caller can require
+   * its own knowledge tool.
+   * @param params - Model, prompt, and the tools for this turn
+   * @returns The model response, including any function calls
+   */
+  public createResponse(params: {
+    abortSignal?: AbortSignal;
+    input: OpenAI.Responses.ResponseCreateParams["input"];
+    instructions?: string;
+    model: OpenAI.Responses.ResponseCreateParams["model"];
+    previousResponseId?: string;
+    toolChoice?: OpenAI.Responses.ResponseCreateParams["tool_choice"];
+    tools?: OpenAI.Responses.Tool[];
+  }): Promise<OpenAI.Responses.Response> {
+    return this.requireClient().responses.create(
+      {
+        input: params.input,
+        instructions: params.instructions,
+        model: params.model,
+        stream: false,
+        ...(params.previousResponseId === undefined
+          ? {}
+          : { previous_response_id: params.previousResponseId }),
+        ...(params.toolChoice === undefined
+          ? {}
+          : { tool_choice: params.toolChoice }),
+        ...(params.tools === undefined ? {} : { tools: params.tools }),
+      },
+      { signal: params.abortSignal },
+    );
+  }
+
+  /**
+   * Generates one PNG through the Image API and stages it on disk.
+   * A reference image uses the edits endpoint so later card levels keep the same person.
+   * @param params - Prompt, optional reference images, and shared size settings
+   * @returns Absolute path of the staged PNG
+   */
+  private async requestImage(params: {
+    abortSignal?: AbortSignal;
+    imageConfig?: ModelRequest<"open-ai">["imageConfig"];
+    inputFiles?: InputFile[];
+    instructions?: string;
+    model: ModelRequest<"open-ai">["model"];
+    prompt: string;
+  }): Promise<string> {
+    const prompt = joinImagePrompt(params.instructions, params.prompt);
+    const size = resolveOpenAIImageSize(params.imageConfig);
+    const referenceImages = imageInputs(params.inputFiles);
+    const client = this.requireClient();
+    const requestOptions = { signal: params.abortSignal };
+    const response =
+      referenceImages.length === 0
+        ? await client.images.generate(
+            {
+              background: "opaque",
+              model: params.model,
+              output_format: "png",
+              prompt,
+              quality: OPENAI_IMAGE_QUALITY,
+              size,
+            },
+            requestOptions,
+          )
+        : await client.images.edit(
+            {
+              background: "opaque",
+              image: await Promise.all(referenceImages),
+              model: params.model,
+              output_format: "png",
+              prompt,
+              quality: OPENAI_IMAGE_QUALITY,
+              size,
+            },
+            requestOptions,
+          );
+
+    const encoded = response.data?.[0]?.b64_json;
+    if (encoded == null || encoded.length === 0) {
+      throw new InternalServerErrorException(
+        "OpenAI image model returned no image data.",
+      );
+    }
+
+    return writeOpenAIImageFile(Buffer.from(encoded, "base64"));
+  }
+
   public async requestTextCompletion<Request extends ModelRequest<"open-ai">>({
+    abortSignal,
     prompt,
     inputFiles,
     instructions,
@@ -64,6 +160,7 @@ export class OpenAIService {
     schema,
     maxTokens,
     audioConfig,
+    imageConfig,
   }: Request): Promise<ModelRequestReturnType<Request>> {
     if (schema === "audio") {
       return this.handleAudioViaChatCompletions({
@@ -77,16 +174,30 @@ export class OpenAIService {
       }) as Promise<ModelRequestReturnType<Request>>;
     }
 
+    if (schema === "image") {
+      return this.requestImage({
+        abortSignal,
+        imageConfig,
+        inputFiles,
+        instructions,
+        model,
+        prompt,
+      }) as Promise<ModelRequestReturnType<Request>>;
+    }
+
     const resolvedModel = model ?? "gpt-5-mini";
-    const response = await this.requireClient().responses.create({
-      input: this.assembleInput(prompt, inputFiles),
-      instructions: instructions,
-      max_output_tokens: maxTokens,
-      model: resolvedModel,
-      tools: this.getToolsWithWebSearch(resolvedModel, tools),
-      ...(typeof temperature !== "undefined" ? { temperature } : {}),
-      ...this.getResponseFormatText(schema),
-    });
+    const response = await this.requireClient().responses.create(
+      {
+        input: this.assembleInput(prompt, inputFiles),
+        instructions: instructions,
+        max_output_tokens: maxTokens,
+        model: resolvedModel,
+        tools: this.getToolsWithWebSearch(resolvedModel, tools),
+        ...(typeof temperature !== "undefined" ? { temperature } : {}),
+        ...this.getResponseFormatText(schema),
+      },
+      { signal: abortSignal },
+    );
 
     if (schema !== "string") {
       return JSON.parse(response.output_text);
@@ -99,6 +210,7 @@ export class OpenAIService {
     Request extends ModelRequest<"open-ai">,
   >(
     {
+      abortSignal,
       prompt,
       inputFiles,
       instructions,
@@ -108,6 +220,7 @@ export class OpenAIService {
       schema,
       maxTokens,
       audioConfig,
+      imageConfig,
     }: Request,
     onEvent: (event: StreamEvent) => void,
   ): Promise<ModelRequestReturnType<Request>> {
@@ -123,17 +236,34 @@ export class OpenAIService {
       }) as Promise<ModelRequestReturnType<Request>>;
     }
 
+    if (schema === "image") {
+      onEvent({ type: "loading" });
+      const filePath = await this.requestImage({
+        abortSignal,
+        imageConfig,
+        inputFiles,
+        instructions,
+        model,
+        prompt,
+      });
+      onEvent({ text: filePath, type: "finish" });
+      return filePath as ModelRequestReturnType<Request>;
+    }
+
     const resolvedModel = model ?? "gpt-5-mini";
-    const response = await this.requireClient().responses.create({
-      input: this.assembleInput(prompt, inputFiles),
-      instructions: instructions,
-      max_output_tokens: maxTokens,
-      model: resolvedModel,
-      tools: this.getToolsWithWebSearch(resolvedModel, tools),
-      ...(typeof temperature !== "undefined" ? { temperature } : {}),
-      stream: true,
-      ...this.getResponseFormatText(schema),
-    });
+    const response = await this.requireClient().responses.create(
+      {
+        input: this.assembleInput(prompt, inputFiles),
+        instructions: instructions,
+        max_output_tokens: maxTokens,
+        model: resolvedModel,
+        tools: this.getToolsWithWebSearch(resolvedModel, tools),
+        ...(typeof temperature !== "undefined" ? { temperature } : {}),
+        stream: true,
+        ...this.getResponseFormatText(schema),
+      },
+      { signal: abortSignal },
+    );
 
     let finalText = "";
 
@@ -565,4 +695,60 @@ export class OpenAIService {
 
     return [...currentMessages, ...(previousMessages ?? [])];
   }
+}
+
+/**
+ * Combines optional system instructions with the image prompt.
+ * @param instructions - Extra guidance for the image model
+ * @param prompt - The main image prompt
+ * @returns The prompt sent to the Image API
+ */
+function joinImagePrompt(
+  instructions: string | undefined,
+  prompt: string,
+): string {
+  if (instructions == null || instructions.length === 0) {
+    return prompt;
+  }
+
+  return `${instructions}\n\n${prompt}`;
+}
+
+/**
+ * Turns image attachments into Image API uploads.
+ * @param inputFiles - Files attached to the model request
+ * @returns Upload promises for each image
+ */
+function imageInputs(inputFiles: InputFile[] | undefined) {
+  const files = inputFiles ?? [];
+  const hasNonImage = files.some(
+    (inputFile) => !inputFile.mimeType.startsWith("image/"),
+  );
+  if (hasNonImage) {
+    throw new BadRequestException(
+      "OpenAI image generation only accepts image inputs.",
+    );
+  }
+
+  return files.map((inputFile, index) => {
+    const extension = inputFile.mimeType.split("/")[1] ?? "png";
+    return toFile(
+      Buffer.from(inputFile.base64, "base64"),
+      `reference-${index}.${extension}`,
+      { type: inputFile.mimeType },
+    );
+  });
+}
+
+/**
+ * Writes an OpenAI image payload to a temp file.
+ * @param image - PNG bytes returned by the Image API
+ * @returns Absolute path of the staged file
+ */
+function writeOpenAIImageFile(image: Buffer): string {
+  const directory = join(tmpdir(), "towers-of-coreborn-openai-media");
+  mkdirSync(directory, { recursive: true });
+  const filePath = join(directory, `${crypto.randomUUID()}.png`);
+  writeFileSync(filePath, image);
+  return filePath;
 }

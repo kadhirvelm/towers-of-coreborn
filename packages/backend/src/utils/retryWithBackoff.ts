@@ -1,3 +1,5 @@
+import { isAbortError } from "./isAbortError";
+
 interface RetryWithBackoffOptions {
   attempts?: number;
   baseDelayMs?: number;
@@ -23,6 +25,9 @@ export async function retryWithBackoff<T>(
     try {
       return await operation();
     } catch (error) {
+      if (isAbortError(error)) {
+        throw error;
+      }
       lastError = error;
 
       if (attempt === attempts) {

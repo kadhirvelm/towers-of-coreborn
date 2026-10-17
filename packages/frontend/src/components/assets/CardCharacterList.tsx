@@ -12,6 +12,7 @@ interface CardCharacterListProps {
   error: string | null;
   isLoading: boolean;
   onDismissJob: (id: string) => void;
+  onStopJob: (id: string) => void;
   pendingJobs: PendingJob[];
   result: ListCardCharactersResponse | null;
 }
@@ -24,11 +25,13 @@ interface CardCharacterListProps {
  * @param error - List error, if any
  * @param pendingJobs - Card-character generations still running or failed
  * @param onDismissJob - Removes a failed job card
+ * @param onStopJob - Stops a running generation
  */
 export function CardCharacterList({
   error,
   isLoading,
   onDismissJob,
+  onStopJob,
   pendingJobs,
   result,
 }: CardCharacterListProps) {
@@ -69,6 +72,7 @@ export function CardCharacterList({
               job={job}
               key={job.id}
               onDismiss={() => onDismissJob(job.id)}
+              onStop={() => onStopJob(job.id)}
             />
           ))}
           {sets.map((set) => (

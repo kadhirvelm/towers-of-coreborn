@@ -1,6 +1,6 @@
 /**
  * Shared constants for the four-level card character portraits.
- * Image generation asks Gemini for a 3:4 portrait; sprite sheets stay 1:1.
+ * Portraits are 3:4. The registered generate-image tool paints them.
  */
 
 import type { ImageGenerationConfig } from "src/model/types/modelRequestTypes";
@@ -9,16 +9,11 @@ export const CARD_CHARACTER_LEVELS = [1, 2, 3, 4] as const;
 
 export type CardCharacterLevelNumber = (typeof CARD_CHARACTER_LEVELS)[number];
 
-export const CARD_CHARACTER_IMAGE_MODEL = "gemini-3-pro-image" as const;
-
 /** Portrait ratio used for collectible-card character art. */
 export const CARD_CHARACTER_IMAGE_CONFIG: ImageGenerationConfig = {
   aspectRatio: "3:4",
   imageSize: "1K",
 };
-
-/** Per-level attempts when the image model returns an unusable file. */
-export const MAX_CARD_CHARACTER_LEVEL_ATTEMPTS = 2;
 
 export const CARD_CHARACTER_MANIFEST_FILE_NAME = "manifest.json";
 

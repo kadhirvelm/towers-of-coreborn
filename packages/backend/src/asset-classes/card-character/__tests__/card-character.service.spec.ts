@@ -5,11 +5,12 @@ import {
   InternalServerErrorException,
 } from "@nestjs/common";
 import type { ConfigurationService } from "src/configuration/configuration.service";
+import type { CardCharacterAgent } from "src/mastra/agents/card-character/cardCharacterAgent";
 import { CardCharacterService } from "../card-character.service";
-import type { CardCharacterGenerationAgentService } from "../cardCharacterAgent.service";
 import { CARD_CHARACTER_STORAGE } from "../cardCharacterStorage";
 
 const SET_ID = "service-spec-set";
+const GENERATION_ID = "4f1c0b2e-6a7d-4c8e-9f10-123456789abc";
 
 describe("CardCharacterService", () => {
   afterEach(async () => {
@@ -25,10 +26,12 @@ describe("CardCharacterService", () => {
     });
     const service = createService(generate);
 
-    const error = await service.generate({ prompt: " " }).then(
-      () => undefined,
-      (caught: unknown) => caught,
-    );
+    const error = await service
+      .generate({ generationId: GENERATION_ID, prompt: " " })
+      .then(
+        () => undefined,
+        (caught: unknown) => caught,
+      );
     expect(error instanceof BadRequestException).toBe(true);
     expect(generate).toHaveBeenCalledTimes(0);
   });
@@ -36,19 +39,27 @@ describe("CardCharacterService", () => {
   test("returns the set it can read back, with absolute portrait URLs", async () => {
     await writeSet(SET_ID);
     let receivedPrompt = "";
-    const generate = mock(async (input: { prompt: string }) => {
-      receivedPrompt = input.prompt;
-      return {
-        setId: SET_ID,
-        summary: "done",
-      };
-    });
+    let receivedGenerationId = "";
+    const generate = mock(
+      async (input: { generationId: string; prompt: string }) => {
+        receivedPrompt = input.prompt;
+        receivedGenerationId = input.generationId;
+        return {
+          setId: SET_ID,
+          summary: "done",
+        };
+      },
+    );
     const service = createService(generate);
 
-    const saved = await service.generate({ prompt: "  a clockwork inventor " });
+    const saved = await service.generate({
+      generationId: GENERATION_ID,
+      prompt: "  a clockwork inventor ",
+    });
 
     expect(generate).toHaveBeenCalledTimes(1);
     expect(receivedPrompt).toBe("a clockwork inventor");
+    expect(receivedGenerationId).toBe(GENERATION_ID);
     expect(saved.setId).toBe(SET_ID);
     expect(saved.levels[0]?.url).toBe(
       `https://backend.test/static/card-characters/${SET_ID}/level-1.png`,
@@ -61,11 +72,29 @@ describe("CardCharacterService", () => {
       summary: "done",
     }));
 
-    const error = await service.generate({ prompt: "a knight" }).then(
-      () => undefined,
-      (caught: unknown) => caught,
-    );
+    const error = await service
+      .generate({ generationId: GENERATION_ID, prompt: "a knight" })
+      .then(
+        () => undefined,
+        (caught: unknown) => caught,
+      );
     expect(error instanceof InternalServerErrorException).toBe(true);
+  });
+
+  test("stops the agent run for the generation id", async () => {
+    const abort = mock(async (generationId: string) => {
+      expect(generationId).toBe(GENERATION_ID);
+      return true;
+    });
+    const service = createService(
+      async () => ({ setId: SET_ID, summary: "" }),
+      abort,
+    );
+
+    const stopped = await service.cancel({ generationId: GENERATION_ID });
+
+    expect(stopped).toEqual({ stopped: true });
+    expect(abort).toHaveBeenCalledTimes(1);
   });
 
   test("lists stored sets", async () => {
@@ -79,14 +108,15 @@ describe("CardCharacterService", () => {
 });
 
 /**
- * @param generate - Stand-in for the coordinator agent
+ * @param query - Stand-in for the card-character agent
  * @returns A service pointed at the real card-character folder
  */
 function createService(
-  generate: CardCharacterGenerationAgentService["generate"],
+  query: CardCharacterAgent["query"],
+  abort: CardCharacterAgent["abort"] = async () => false,
 ): CardCharacterService {
   return new CardCharacterService(
-    { generate } as unknown as CardCharacterGenerationAgentService,
+    { abort, query } as unknown as CardCharacterAgent,
     {
       get: () => "https://backend.test",
     } as unknown as ConfigurationService,

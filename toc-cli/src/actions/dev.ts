@@ -1,11 +1,16 @@
-import { execSync, spawn } from "node:child_process";
+import { type ChildProcess, execSync, spawn } from "node:child_process";
 import { existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { DATABASE_HOST_URL } from "../constants/database";
 import { checkRedisConnection } from "../utils/checkRedisConnection";
-import { getIpAddress } from "../utils/getIpAddress";
 import { getRoot } from "../utils/getRoot";
 import { logColorMessage } from "../utils/logColorMessage";
+import {
+  type NgrokSession,
+  printNgrokUrls,
+  startNgrok,
+  stopNgrok,
+} from "../utils/ngrok";
 import { updatePublicUrl, updatePublicUrlJs } from "../utils/updatePublicUrl";
 import { createTestDatabase, database } from "./database";
 import { ensureEnvFileInSync } from "./ensureEnvInSync";
@@ -34,18 +39,27 @@ function isCertificateExpired(certPath: string): boolean {
   }
 }
 
-function generateCertificates(
-  keyPath: string,
-  certPath: string,
-  network?: boolean,
-) {
-  const ipAddress = network
-    ? `${getIpAddress()} 127.0.0.1 ::1`
-    : "localhost 127.0.0.1 ::1";
+/**
+ * Older `--network` runs minted certificates for the machine's LAN IP only;
+ * those don't cover `localhost`, which is all the stack binds to now. ngrok
+ * forwards to `https://localhost`.
+ */
+function certificateCoversLocalhost(certPath: string): boolean {
+  try {
+    const result = execSync(
+      `openssl x509 -noout -ext subjectAltName -in "${certPath}"`,
+      { encoding: "utf-8", stdio: ["ignore", "pipe", "ignore"] },
+    );
+    return result.includes("DNS:localhost");
+  } catch {
+    return false;
+  }
+}
 
+function generateCertificates(keyPath: string, certPath: string) {
   try {
     execSync(
-      `mkcert -key-file "${keyPath}" -cert-file "${certPath}" ${ipAddress}`,
+      `mkcert -key-file "${keyPath}" -cert-file "${certPath}" localhost 127.0.0.1 ::1`,
       { stdio: "inherit" },
     );
     logColorMessage("HTTPS certificates generated successfully.", "green");
@@ -70,7 +84,7 @@ function ensureMkcertInstalled() {
   }
 }
 
-function ensureCertificates(network?: boolean) {
+function ensureCertificates() {
   const root = getRoot();
   const certsDir = join(root, ".certs");
   const certPath = join(certsDir, "localhost.pem");
@@ -78,15 +92,17 @@ function ensureCertificates(network?: boolean) {
 
   const certsExist = existsSync(certPath) && existsSync(keyPath);
 
-  // Check if certificates exist and are not expired
-  if (certsExist && !isCertificateExpired(certPath)) {
+  if (
+    certsExist &&
+    !isCertificateExpired(certPath) &&
+    certificateCoversLocalhost(certPath)
+  ) {
     return;
   }
 
-  // Certs are expiring soon, regenerate them
   if (certsExist) {
     logColorMessage(
-      "HTTPS certificates are expiring soon. Regenerating...",
+      "HTTPS certificates are missing localhost or expiring soon. Regenerating...",
       "yellow",
     );
   } else {
@@ -100,7 +116,7 @@ function ensureCertificates(network?: boolean) {
     mkdirSync(certsDir, { recursive: true });
   }
 
-  generateCertificates(keyPath, certPath, network);
+  generateCertificates(keyPath, certPath);
 }
 
 function openDocker() {
@@ -168,9 +184,9 @@ function runMigrations(forEndToEnd?: boolean) {
   logColorMessage("Database migrations completed.", "yellow");
 }
 
-async function runDev(forEndToEnd?: boolean) {
+function runDev(forEndToEnd?: boolean): ChildProcess {
   if (forEndToEnd) {
-    spawn("bun", ["run", "turbo", "run", "dev"], {
+    return spawn("bun", ["run", "turbo", "run", "dev"], {
       cwd: getRoot(),
       env: {
         ...process.env,
@@ -178,10 +194,9 @@ async function runDev(forEndToEnd?: boolean) {
       },
       stdio: "inherit",
     });
-    return;
   }
 
-  spawn("bun", ["run", "turbo", "run", "dev", "--ui=tui"], {
+  return spawn("bun", ["run", "turbo", "run", "dev", "--ui=tui"], {
     cwd: getRoot(),
     env: {
       ...process.env,
@@ -195,8 +210,9 @@ export async function dev(
   reset?: boolean,
   forEndToEnd?: boolean,
 ) {
-  // Ensure HTTPS certificates exist
-  ensureCertificates(network);
+  // Ensure HTTPS certificates exist. The stack always binds to localhost;
+  // `--network` publishes that localhost listener through ngrok.
+  ensureCertificates();
 
   // Start Docker containers required for development
   openDocker();
@@ -211,11 +227,38 @@ export async function dev(
   // Ensure the .env file is in sync with default environment values -> this is where we add new environment variables to the .env file
   const environmentFile = ensureEnvFileInSync();
 
-  // Determine the IP address to use for PUBLIC_URL (network IP or localhost)
-  const ipAddress = network ? getIpAddress() : "localhost";
+  // Tunnels must exist before the stack boots: Next.js and Nest read the
+  // public URLs from the environment at startup. The processes themselves
+  // still bind to localhost.
+  let ngrokSession: NgrokSession | undefined;
+  if (network && !forEndToEnd) {
+    try {
+      ngrokSession = await startNgrok(environmentFile);
+    } catch (error) {
+      logColorMessage(
+        `Failed to start ngrok: ${error instanceof Error ? error.message : String(error)}`,
+        "red",
+      );
+      process.exit(1);
+    }
+    // Any `process.exit` between here and shutdown (failed migration, Redis
+    // down, ...) must still take the tunnels with it.
+    const session = ngrokSession;
+    process.on("exit", () => {
+      if (
+        session.child.exitCode === null &&
+        session.child.signalCode === null
+      ) {
+        session.child.kill("SIGKILL");
+      }
+    });
+    printNgrokUrls(ngrokSession.urls);
+  }
 
-  // Update the PUBLIC_URL in the .env file
-  updatePublicUrl(ipAddress, environmentFile);
+  const ipAddress = "localhost";
+
+  // Update the URL entries in the .env file (localhost or ngrok tunnels)
+  updatePublicUrl(ipAddress, environmentFile, ngrokSession?.urls);
 
   // Update the PUBLIC_URL in the JavaScript config file
   updatePublicUrlJs(ipAddress);
@@ -233,7 +276,8 @@ export async function dev(
       "PUBLIC_URL is not set correctly. Please restart the dev command.",
       "red",
     );
-    return;
+    stopNgrok(ngrokSession);
+    process.exit(1);
   }
 
   // Ensure Redis is ready before proceeding
@@ -255,8 +299,34 @@ export async function dev(
 
   // Run open and runDev in separate threads
   if (!forEndToEnd) {
-    open(network);
+    open(ngrokSession?.urls);
   }
 
-  runDev(forEndToEnd);
+  const devChild = runDev(forEndToEnd);
+  if (!ngrokSession) return;
+
+  const session = ngrokSession;
+  let ngrokStopRequested = false;
+  // Swallowing SIGINT keeps this process alive long enough to tear the
+  // tunnels down after turbo exits. The terminal still delivers the signal
+  // to the dev process group, so turbo shuts down on its own.
+  const markNgrokStopRequested = () => {
+    ngrokStopRequested = true;
+  };
+  process.on("SIGINT", markNgrokStopRequested);
+  process.on("SIGTERM", markNgrokStopRequested);
+
+  session.child.on("exit", (code, signal) => {
+    if (ngrokStopRequested) return;
+    logColorMessage(
+      `ngrok exited unexpectedly (${signal ?? code}); the public URLs are no longer reachable. Restart \`toc dev --network\` to re-establish them.`,
+      "red",
+    );
+  });
+
+  devChild.on("exit", (code) => {
+    ngrokStopRequested = true;
+    stopNgrok(session);
+    process.exit(code ?? 0);
+  });
 }

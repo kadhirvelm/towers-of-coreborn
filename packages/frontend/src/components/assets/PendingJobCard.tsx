@@ -9,14 +9,21 @@ export type { PendingJob } from "./assetGenerationJobs";
 interface PendingJobCardProps {
   job: PendingJob;
   onDismiss: () => void;
+  onStop: () => void;
 }
 
 /**
  * Renders a pending generation card — pulsing while in progress, red on failure.
+ * A running card can be stopped. A failed card can be dismissed.
  * @param job - The generation job to display
  * @param onDismiss - Called when the user dismisses a failed job
+ * @param onStop - Called when the user stops a running generation
  */
-export function PendingJobCard({ job, onDismiss }: PendingJobCardProps) {
+export function PendingJobCard({
+  job,
+  onDismiss,
+  onStop,
+}: PendingJobCardProps) {
   if (job.error !== null) {
     return (
       <div className={clsx(styles.pendingCard, styles.pendingCardFailed)}>
@@ -37,8 +44,18 @@ export function PendingJobCard({ job, onDismiss }: PendingJobCardProps) {
   return (
     <div className={styles.pendingCard}>
       <div className={styles.pendingSpinner} />
-      <span className={styles.pendingStatusLabel}>Generating…</span>
+      <span className={styles.pendingStatusLabel}>
+        {job.stopping ? "Stopping…" : "Generating…"}
+      </span>
       <span className={styles.pendingPrompt}>{job.prompt}</span>
+      <button
+        className={styles.pendingStop}
+        disabled={job.stopping}
+        onClick={onStop}
+        type="button"
+      >
+        {job.stopping ? "Stopping…" : "Stop"}
+      </button>
     </div>
   );
 }

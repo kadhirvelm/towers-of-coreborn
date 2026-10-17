@@ -1,24 +1,66 @@
 import { exec } from "node:child_process";
+import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import { sleep } from "bun";
-import { getIpAddress } from "../utils/getIpAddress";
+import { getRoot } from "../utils/getRoot";
+import { logColorMessage } from "../utils/logColorMessage";
+import { type NgrokUrls, printNgrokUrls } from "../utils/ngrok";
 
-async function checkFrontend(ipAddress: string) {
+const LOCAL_FRONTEND_URL = "https://localhost:3000";
+
+/**
+ * URL the browser should open. Live tunnel URLs win; otherwise `FRONTEND_URL`
+ * from the root `.env` (what `toc dev --network` wrote); otherwise localhost.
+ *
+ * @param ngrokUrls - Tunnels from the current `toc dev --network` process.
+ * @param configuredFrontendUrl - `FRONTEND_URL` already stored in `.env`.
+ * @returns Absolute URL to pass to the OS opener.
+ */
+export function urlToOpen(
+  ngrokUrls?: NgrokUrls,
+  configuredFrontendUrl?: string,
+): string {
+  if (ngrokUrls?.frontend) return ngrokUrls.frontend;
+
+  const configured = configuredFrontendUrl?.trim();
+  if (configured) return configured;
+
+  return LOCAL_FRONTEND_URL;
+}
+
+/**
+ * Reads `FRONTEND_URL` from the repo-root `.env` without mutating `process.env`.
+ *
+ * @returns The configured frontend URL, or `undefined` when it isn't set.
+ */
+function readConfiguredFrontendUrl(): string | undefined {
+  const envPath = join(getRoot(), ".env");
+  if (!existsSync(envPath)) return undefined;
+
+  const line = readFileSync(envPath, "utf8")
+    .split("\n")
+    .find((entry) => entry.startsWith("FRONTEND_URL="));
+  if (line === undefined) return undefined;
+
+  const value = line.slice("FRONTEND_URL=".length).trim();
+  if (value === "") return undefined;
+  return value;
+}
+
+async function checkFrontend(url: string) {
   return new Promise((resolve) => {
-    const child = exec(
-      `curl -s "https://${ipAddress}:3000" > /dev/null`,
-      (error) => {
-        if (resolved) return;
-        clearTimeout(timeout);
+    const child = exec(`curl -sk "${url}" > /dev/null`, (error) => {
+      if (resolved) return;
+      clearTimeout(timeout);
 
-        if (error) {
-          resolve(false);
-        } else {
-          resolve(true);
-        }
+      if (error) {
+        resolve(false);
+      } else {
+        resolve(true);
+      }
 
-        resolved = true;
-      },
-    );
+      resolved = true;
+    });
 
     let resolved = false;
     const timeout = setTimeout(() => {
@@ -31,23 +73,33 @@ async function checkFrontend(ipAddress: string) {
 }
 
 /**
+ * Waits for the local frontend to accept connections, then opens it in the
+ * default browser. With ngrok URLs, readiness is still checked against
+ * localhost (the tunnel edge answers before the app is up) but the public URL
+ * is what gets opened and re-printed for sharing. `toc open` on its own reads
+ * `FRONTEND_URL` from `.env`, which `toc dev --network` points at the tunnel.
+ *
  * These are exec instead of execSync because we don't want to block the main thread.
  */
-export async function open(network?: boolean) {
-  const ipAddress = network ? getIpAddress() : "localhost";
-
-  while (!(await checkFrontend(ipAddress))) {
+export async function open(ngrokUrls?: NgrokUrls) {
+  while (!(await checkFrontend(LOCAL_FRONTEND_URL))) {
     sleep(500);
   }
+
+  const url = urlToOpen(ngrokUrls, readConfiguredFrontendUrl());
+  if (ngrokUrls) {
+    printNgrokUrls(ngrokUrls);
+  }
+  logColorMessage(`Opening ${url}`, "green");
 
   exec(
     `
     if [[ "$OSTYPE" == "darwin"* ]]; then
         # macOS
-        open "https://${ipAddress}:3000"
+        open "${url}"
     elif [[ "$OSTYPE" == "linux-gnu"* ]]; then
         # Linux
-        xdg-open "https://${ipAddress}:3000"
+        xdg-open "${url}"
     else
         echo "Unsupported OS for automatic browser opening"
     fi
