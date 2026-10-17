@@ -2,6 +2,7 @@ import { Injectable, InternalServerErrorException } from "@nestjs/common";
 import type { PlayableCardServiceApi } from "@towers-of-coreborn/api";
 import { ConfigurationService } from "src/configuration/configuration.service";
 import { CardGeneratorAgent } from "src/mastra/agents/card-generator/cardGeneratorAgent";
+import { requireGenerationId } from "../shared/requireGenerationId";
 import { requireGenerationPrompt } from "../shared/requireGenerationPrompt";
 import { PLAYABLE_CARD_STORAGE } from "./playableCardStorage";
 import { readPlayableCard, readPlayableCards } from "./readPlayableCards";
@@ -18,11 +19,23 @@ export class PlayableCardService {
   ) {}
 
   /**
+   * Stops an in-flight card generation.
+   * @param payload - Client generation id
+   * @returns Whether the stop was recorded
+   */
+  public async cancel(
+    payload: PlayableCardServiceApi["cancel"]["payload"],
+  ): Promise<PlayableCardServiceApi["cancel"]["response"]> {
+    const generationId = requireGenerationId(payload.generationId);
+    return { stopped: await this.cardGeneratorAgent.abort(generationId) };
+  }
+
+  /**
    * Searches the Lore document, writes a card, and returns the stored asset.
-   * @param payload - Natural-language description of the card
+   * @param payload - Natural-language description of the card and the id that can stop it
    * @param sessionId - Browser session that holds the ProductNow connection
    * @returns The stored card with an absolute image URL
-   * @throws BadRequestException when the prompt is empty
+   * @throws BadRequestException when the prompt is empty or the generation id is not a UUID
    * @throws UnauthorizedException when ProductNow is not connected
    * @throws InternalServerErrorException when generation fails or the card cannot be read back
    */
@@ -34,7 +47,9 @@ export class PlayableCardService {
       payload.prompt,
       "Describe the card to generate.",
     );
+    const generationId = requireGenerationId(payload.generationId);
     const { cardId } = await this.cardGeneratorAgent.query({
+      generationId,
       prompt,
       sessionId,
     });

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { buildBattleBackgroundImagePrompt } from "./buildBattleBackgroundImagePrompt";
+import { buildBattleBackgroundImagePrompt } from "../buildBattleBackgroundImagePrompt";
 
 describe("buildBattleBackgroundImagePrompt", () => {
   test("applies the art direction and reserves combat UI space", () => {

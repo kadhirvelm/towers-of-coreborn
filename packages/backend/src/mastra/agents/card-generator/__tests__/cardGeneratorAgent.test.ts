@@ -3,18 +3,23 @@ import { randomUUID } from "node:crypto";
 import { mkdtemp, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { AgentTool } from "@towers-of-coreborn/api";
 import sharp from "sharp";
-import {
-  LORE_DOCUMENT_ID,
-  PLAYABLE_CARD_IMAGE_CONFIG,
-  PLAYABLE_CARD_IMAGE_MODEL,
-} from "src/asset-classes/playable-card/playableCardSpec";
+import { LORE_DOCUMENT_ID } from "src/asset-classes/playable-card/playableCardSpec";
 import { PLAYABLE_CARD_STORAGE } from "src/asset-classes/playable-card/playableCardStorage";
+import {
+  SEARCH_LORE_TOOL_ID,
+  SUBMIT_PLAYABLE_CARD_TOOL_ID,
+} from "src/asset-classes/playable-card/playableCardTools";
 import { readPlayableCard } from "src/asset-classes/playable-card/readPlayableCards";
-import { ModelService } from "src/model/model.service";
-import { OpenAIService } from "src/model/openAI.service";
+import { MockRedisService } from "src/infra/redis/__tests__/mockRedis.module";
+import type { RedisService } from "src/infra/redis/redis.service";
 import { ProductNowMcpService } from "src/product-now-mcp/product-now-mcp.service";
+import { GenerationAbortCoordinator } from "../../generationAbort.coordinator";
+import { GenerationCancelledException } from "../../generationCancelled";
 import { CardGeneratorAgent } from "../cardGeneratorAgent";
+
+const GENERATION_ID = "4f1c0b2e-6a7d-4c8e-9f10-123456789abc";
 
 const loreExcerpt =
   "The earliest recorded Coreborn bond belongs to Licensed Climber Tamsin Korr on floor 4.";
@@ -47,26 +52,9 @@ describe("CardGeneratorAgent", () => {
     }
   });
 
-  test("searches the Lore document before saving the card and its image", async () => {
+  test("searches the Lore document, then saves the card from generate-image", async () => {
     const tempDirectory = await mkdtemp(join(tmpdir(), "playable-card-image-"));
-    const responseCalls: Array<Record<string, unknown>> = [];
-    const createResponse = mock(async (params: Record<string, unknown>) => {
-      responseCalls.push(params);
-      if (responseCalls.length === 1) {
-        return toolResponse(
-          "resp-1",
-          "search_lore",
-          { query: "Coreborn bond" },
-          "call-search",
-        );
-      }
-      return toolResponse(
-        "resp-2",
-        "submit_playable_card",
-        validCard,
-        "call-submit",
-      );
-    });
+    const portraitPath = await createPortrait(tempDirectory, 96, 128);
     const searchArguments: unknown[] = [];
     const callTool = mock(
       async (_sessionId: string, name: string, args: unknown) => {
@@ -75,32 +63,41 @@ describe("CardGeneratorAgent", () => {
         return loreEnvelope();
       },
     );
-    const imageRequests: Array<Record<string, unknown>> = [];
-    const requestTextCompletion = mock(
-      async (request: Record<string, unknown>) => {
-        imageRequests.push(request);
-        return createPortrait(tempDirectory);
-      },
-    );
+    const runChatWithTools = mock(async (input: ChatInput) => {
+      expect(input.tools[AgentTool.ConsultProductNow]).toBeDefined();
+      expect(input.tools[AgentTool.GenerateImage]).toBeDefined();
+      expect(input.tools[SEARCH_LORE_TOOL_ID]).toBeDefined();
+      expect(input.tools[SUBMIT_PLAYABLE_CARD_TOOL_ID]).toBeDefined();
+      expect(input.agentConfig.instructions).toContain("`generate-image`");
+      expect(input.agentConfig.instructions).toContain("Watercolor on paper");
+      expect(input.prompt).toContain("first Coreborn bond");
+
+      await requireTool(input.tools, SEARCH_LORE_TOOL_ID).execute(
+        { query: "Coreborn bond" },
+        {},
+      );
+      const submitted = await requireTool(
+        input.tools,
+        SUBMIT_PLAYABLE_CARD_TOOL_ID,
+      ).execute(validCard, {});
+      expect(submitted).toEqual({ accepted: true, message: "Card accepted." });
+
+      return imageChat(portraitPath);
+    });
 
     try {
-      const service = new CardGeneratorAgent(
-        { createResponse } as unknown as OpenAIService,
-        { requestTextCompletion } as unknown as ModelService,
+      const agent = new CardGeneratorAgent(
+        agentService(runChatWithTools),
         { callTool } as unknown as ProductNowMcpService,
+        idleAbort() as unknown as GenerationAbortCoordinator,
       );
-
-      const { cardId } = await service.query({
+      const { cardId } = await agent.query({
+        generationId: GENERATION_ID,
         prompt: "a card about the first Coreborn bond",
         sessionId: "session-1",
       });
       savedCardIds.push(cardId);
 
-      const firstCall = responseCalls[0];
-      expect(firstCall?.toolChoice).toEqual({
-        name: "search_lore",
-        type: "function",
-      });
       expect(searchArguments).toEqual([
         {
           folderId: "e12d636b-aaa5-4b8e-b8a9-9a5b3d840dba",
@@ -109,14 +106,6 @@ describe("CardGeneratorAgent", () => {
           searchScope: "workspace",
         },
       ]);
-
-      const imageRequest = imageRequests[0];
-      expect(imageRequest?.type).toBe("open-ai");
-      expect(imageRequest?.schema).toBe("image");
-      expect(imageRequest?.model).toBe(PLAYABLE_CARD_IMAGE_MODEL);
-      expect(imageRequest?.imageConfig).toEqual(PLAYABLE_CARD_IMAGE_CONFIG);
-      expect(String(imageRequest?.prompt)).toContain("Watercolor on paper");
-
       const card = await readPlayableCard(
         PLAYABLE_CARD_STORAGE.rootPath(),
         cardId,
@@ -136,41 +125,8 @@ describe("CardGeneratorAgent", () => {
 
   test("rejects a card submitted before any Lore passage matches", async () => {
     const tempDirectory = await mkdtemp(join(tmpdir(), "playable-card-retry-"));
+    const portraitPath = await createPortrait(tempDirectory, 96, 128);
     let searches = 0;
-    const responseCalls: Array<Record<string, unknown>> = [];
-    const createResponse = mock(async (params: Record<string, unknown>) => {
-      responseCalls.push(params);
-      if (responseCalls.length === 1) {
-        return toolResponse(
-          "resp-1",
-          "search_lore",
-          { query: "cards" },
-          "call-search-1",
-        );
-      }
-      if (responseCalls.length === 2) {
-        return toolResponse(
-          "resp-2",
-          "submit_playable_card",
-          validCard,
-          "call-early",
-        );
-      }
-      if (responseCalls.length === 3) {
-        return toolResponse(
-          "resp-3",
-          "search_lore",
-          { query: "Tamsin Korr Coreborn" },
-          "call-search-2",
-        );
-      }
-      return toolResponse(
-        "resp-4",
-        "submit_playable_card",
-        validCard,
-        "call-submit",
-      );
-    });
     const callTool = mock(async () => {
       searches += 1;
       if (searches === 1) {
@@ -178,66 +134,69 @@ describe("CardGeneratorAgent", () => {
       }
       return loreEnvelope();
     });
-    const requestTextCompletion = mock(async () =>
-      createPortrait(tempDirectory),
-    );
+    const runChatWithTools = mock(async (input: ChatInput) => {
+      const submit = requireTool(input.tools, SUBMIT_PLAYABLE_CARD_TOOL_ID);
+      const search = requireTool(input.tools, SEARCH_LORE_TOOL_ID);
+      const tooEarly = await submit.execute(validCard, {});
+      expect(tooEarly).toEqual({
+        accepted: false,
+        message:
+          "Search the Lore document and use a returned passage before submitting.",
+      });
+      await search.execute({ query: "cards" }, {});
+      await search.execute({ query: "Tamsin Korr Coreborn" }, {});
+      const accepted = await submit.execute(validCard, {});
+      expect(accepted).toEqual({ accepted: true, message: "Card accepted." });
+      return imageChat(portraitPath);
+    });
 
     try {
-      const service = new CardGeneratorAgent(
-        { createResponse } as unknown as OpenAIService,
-        { requestTextCompletion } as unknown as ModelService,
+      const agent = new CardGeneratorAgent(
+        agentService(runChatWithTools),
         { callTool } as unknown as ProductNowMcpService,
+        idleAbort() as unknown as GenerationAbortCoordinator,
       );
-      const { cardId } = await service.query({
+      const { cardId } = await agent.query({
+        generationId: GENERATION_ID,
         prompt: "a card about Tamsin Korr",
         sessionId: "session-1",
       });
       savedCardIds.push(cardId);
-
-      const retryInput = JSON.stringify(responseCalls[2]?.input);
-      expect(retryInput).toContain(
-        "Search the Lore document and use a returned passage before submitting.",
-      );
       expect(callTool).toHaveBeenCalledTimes(2);
-      expect(requestTextCompletion).toHaveBeenCalledTimes(1);
     } finally {
       await rm(tempDirectory, { force: true, recursive: true });
     }
   });
 
-  test("removes the card directory when painting fails", async () => {
-    const responseCalls: unknown[] = [];
-    const createResponse = mock(async () => {
-      responseCalls.push(responseCalls.length);
-      if (responseCalls.length === 1) {
-        return toolResponse(
-          "resp-1",
-          "search_lore",
-          { query: "Coreborn" },
-          "call-search",
-        );
-      }
-      return toolResponse(
-        "resp-2",
-        "submit_playable_card",
-        validCard,
-        "call-submit",
+  test("removes the card directory when the portrait is unusable", async () => {
+    const tempDirectory = await mkdtemp(join(tmpdir(), "playable-card-tiny-"));
+    const portraitPath = await createPortrait(tempDirectory, 8, 8);
+    const runChatWithTools = mock(async (input: ChatInput) => {
+      await requireTool(input.tools, SEARCH_LORE_TOOL_ID).execute(
+        { query: "Coreborn" },
+        {},
       );
+      await requireTool(input.tools, SUBMIT_PLAYABLE_CARD_TOOL_ID).execute(
+        validCard,
+        {},
+      );
+      return imageChat(portraitPath);
     });
-    const requestTextCompletion = mock(async () => {
-      throw new Error("image model down");
-    });
-    const service = new CardGeneratorAgent(
-      { createResponse } as unknown as OpenAIService,
-      { requestTextCompletion } as unknown as ModelService,
+    const before = new Set(await listCardIds());
+    const agent = new CardGeneratorAgent(
+      agentService(runChatWithTools),
       {
         callTool: mock(async () => loreEnvelope()),
       } as unknown as ProductNowMcpService,
+      idleAbort() as unknown as GenerationAbortCoordinator,
     );
-    const before = new Set(await listCardIds());
 
-    const error = await service
-      .query({ prompt: "a Coreborn card", sessionId: "session-1" })
+    const error = await agent
+      .query({
+        generationId: GENERATION_ID,
+        prompt: "a Coreborn card",
+        sessionId: "session-1",
+      })
       .then(
         () => undefined,
         (caught: unknown) => caught,
@@ -246,14 +205,155 @@ describe("CardGeneratorAgent", () => {
     if (!(error instanceof Error)) {
       throw new Error("expected painting to fail");
     }
-    expect(error.message).toContain("paint");
-    expect(requestTextCompletion).toHaveBeenCalledTimes(2);
+    expect(error.message).toContain("below 64px");
     const after = await listCardIds();
     for (const cardId of after) {
       expect(before.has(cardId)).toBe(true);
     }
+    await rm(tempDirectory, { force: true, recursive: true });
+  });
+
+  test("abort stops the chat before a card is stored", async () => {
+    const redis = new MockRedisService();
+    const runs = new GenerationAbortCoordinator(
+      redis as unknown as RedisService,
+    );
+    await runs.onModuleInit();
+    let markStarted: () => void = () => undefined;
+    const started = new Promise<void>((resolve) => {
+      markStarted = () => {
+        resolve();
+      };
+    });
+    const runChatWithTools = async (input: ChatInput) => {
+      markStarted();
+      return new Promise((_resolve, reject) => {
+        const fail = () => {
+          const abortError = new Error("The operation was aborted");
+          abortError.name = "AbortError";
+          reject(abortError);
+        };
+        if (input.abortSignal?.aborted === true) {
+          fail();
+          return;
+        }
+        input.abortSignal?.addEventListener("abort", fail);
+      });
+    };
+    const before = new Set(await listCardIds());
+    const agent = new CardGeneratorAgent(
+      agentService(runChatWithTools),
+      {
+        callTool: mock(async () => loreEnvelope()),
+      } as unknown as ProductNowMcpService,
+      runs,
+    );
+
+    const pending = agent.query({
+      generationId: GENERATION_ID,
+      prompt: "a Coreborn card",
+      sessionId: "session-1",
+    });
+    await started;
+    await agent.abort(GENERATION_ID);
+    const error = await pending.then(
+      () => undefined,
+      (caught: unknown) => caught,
+    );
+
+    expect(error instanceof GenerationCancelledException).toBe(true);
+    const after = await listCardIds();
+    for (const cardId of after) {
+      expect(before.has(cardId)).toBe(true);
+    }
+    await runs.onModuleDestroy();
   });
 });
+
+interface ChatTool {
+  execute: (input: unknown, context: unknown) => Promise<unknown>;
+}
+
+/**
+ * @param tools - Tools the chat mock received
+ * @param id - Tool id the test is about to call
+ * @returns That tool
+ */
+function requireTool(tools: Record<string, ChatTool>, id: string): ChatTool {
+  const tool = tools[id];
+  if (tool === undefined) {
+    throw new Error(`Missing tool ${id}.`);
+  }
+  return tool;
+}
+
+interface ChatInput {
+  abortSignal?: AbortSignal;
+  agentConfig: {
+    instructions: string;
+  };
+  prompt: string;
+  tools: Record<string, ChatTool>;
+}
+
+/**
+ * @param runChatWithTools - Stand-in for the Mastra chat
+ * @returns The agent dependencies the card generator calls
+ */
+function agentService(
+  runChatWithTools: (input: ChatInput) => Promise<unknown>,
+) {
+  return {
+    runChatWithTools,
+    towersOfCorebornAgentToolRegistry: {
+      buildTools: () => ({
+        [AgentTool.ConsultProductNow]: { id: AgentTool.ConsultProductNow },
+        [AgentTool.GenerateImage]: { id: AgentTool.GenerateImage },
+      }),
+    },
+  } as never;
+}
+
+/**
+ * @param filePath - Portrait the fake generate-image call returned
+ * @returns A finished chat with one image result
+ */
+function imageChat(filePath: string) {
+  return {
+    text: "Korr's First Bond is ready.",
+    toolErrors: [],
+    toolResults: [
+      {
+        result: {
+          aspectRatio: "3:4",
+          imageSize: "1K",
+          images: [
+            {
+              filePath,
+              name: validCard.name,
+              notes: validCard.scene,
+            },
+          ],
+        },
+        toolCallId: "image-1",
+        toolName: AgentTool.GenerateImage,
+      },
+    ],
+  };
+}
+
+/**
+ * @returns An abort coordinator that never stops a run
+ */
+function idleAbort(): Pick<GenerationAbortCoordinator, "begin" | "stop"> {
+  return {
+    begin: async () => ({
+      end: async () => undefined,
+      signal: new AbortController().signal,
+    }),
+    stop: async () => true,
+  };
+}
 
 /**
  * @returns Directory names currently under the playable-card static root
@@ -268,27 +368,6 @@ async function listCardIds(): Promise<string[]> {
     }
     throw error;
   }
-}
-
-/**
- * @param id - Response id
- * @param name - Tool name
- * @param args - Tool arguments
- * @param callId - Function call id
- * @returns A one-call Responses payload
- */
-function toolResponse(id: string, name: string, args: unknown, callId: string) {
-  return {
-    id,
-    output: [
-      {
-        arguments: JSON.stringify(args),
-        call_id: callId,
-        name,
-        type: "function_call",
-      },
-    ],
-  };
 }
 
 /**
@@ -324,16 +403,22 @@ function loreEnvelope() {
 
 /**
  * @param directory - Temp directory for the fake model output
- * @returns Path to a small PNG
+ * @param width - Image width in pixels
+ * @param height - Image height in pixels
+ * @returns Path to a PNG
  */
-async function createPortrait(directory: string) {
+async function createPortrait(
+  directory: string,
+  width: number,
+  height: number,
+) {
   const filePath = join(directory, `${randomUUID()}.png`);
   await sharp({
     create: {
       background: { alpha: 1, b: 80, g: 120, r: 40 },
       channels: 4,
-      height: 128,
-      width: 96,
+      height,
+      width,
     },
   })
     .png()

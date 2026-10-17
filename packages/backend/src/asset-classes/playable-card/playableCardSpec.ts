@@ -15,15 +15,7 @@ export const LORE_DOCUMENT_ID = "ff1b04a0-b440-4746-9a1a-cd25fba0c32b";
  */
 export const CARD_GAME_FOLDER_ID = "e12d636b-aaa5-4b8e-b8a9-9a5b3d840dba";
 
-/** OpenAI model that writes the card from Lore search results. */
-export const PLAYABLE_CARD_TEXT_MODEL = "gpt-5.4" as const;
-
-/**
- * GPT Image 2.5 accepts the portrait sizes from `resolveOpenAIImageSize`.
- */
-export const PLAYABLE_CARD_IMAGE_MODEL = "gpt-image-2.5-flare" as const;
-
-/** Portrait ratio used for collectible-card art. */
+/** Portrait ratio the generate-image tool must use for card art. */
 export const PLAYABLE_CARD_IMAGE_CONFIG: ImageGenerationConfig = {
   aspectRatio: "3:4",
   imageSize: "1K",
@@ -33,11 +25,15 @@ export const PLAYABLE_CARD_IMAGE_FILE_NAME = "card.png";
 
 export const PLAYABLE_CARD_MANIFEST_FILE_NAME = "manifest.json";
 
-/** Research turns after the required first Lore search. */
+/** Lore searches the agent may make before it has to submit the card. */
 export const MAX_PLAYABLE_CARD_RESEARCH_TURNS = 6;
 
-/** Image attempts when the file is missing or too small. */
-export const MAX_PLAYABLE_CARD_IMAGE_ATTEMPTS = 2;
+/**
+ * Steps for one card-generator run: Lore searches, submission, the image
+ * tool, and a closing reply.
+ */
+export const PLAYABLE_CARD_AGENT_MAX_STEPS =
+  MAX_PLAYABLE_CARD_RESEARCH_TURNS + 4;
 
 export const PLAYABLE_CARD_AETHER_COST = { max: 4, min: 1 } as const;
 

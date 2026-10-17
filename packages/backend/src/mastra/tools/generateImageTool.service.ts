@@ -8,6 +8,11 @@ import {
 } from "@nestjs/common";
 import { AgentTool } from "@towers-of-coreborn/api";
 import sharp from "sharp";
+import {
+  GenerationCancelledException,
+  isGenerationAbort,
+  throwIfAborted,
+} from "src/mastra/agents/generationCancelled";
 import { ModelService } from "src/model/model.service";
 import type {
   ImageGenerationConfig,
@@ -115,6 +120,7 @@ export interface GeneratedImage {
 export type GenerateImageResult = z.infer<typeof generateImageOutputSchema>;
 
 interface ImageAttempt {
+  abortSignal?: AbortSignal;
   imageConfig: ImageGenerationConfig;
   prompt: string;
   provider: ImageProvider;
@@ -139,8 +145,11 @@ export class GenerateImageToolService {
     return createTool({
       description:
         "Generate one or more images with Gemini or OpenAI. Set provider to `gemini` or `open-ai`. When useFirstImageAsReference is true, images after the first keep the subject of the first image.",
-      execute: async (input: GenerateImageInput) => {
-        return this.generate(input);
+      execute: async (
+        input: GenerateImageInput,
+        context?: { abortSignal?: AbortSignal },
+      ) => {
+        return this.generate(input, context?.abortSignal);
       },
       id: AgentTool.GenerateImage,
       inputSchema: generateImageInputSchema,
@@ -151,16 +160,19 @@ export class GenerateImageToolService {
   /**
    * Paints every requested image, in order, through the chosen provider.
    * @param input - Provider, size, and the prompts to paint
+   * @param abortSignal - Stops painting when the caller aborts the generation
    * @returns The generated files plus the provider and model that painted them
+   * @throws GenerationCancelledException when the caller aborts the generation
    * @throws InternalServerErrorException when an image is still unusable after retries
    */
   public async generate(
     input: GenerateImageInput,
+    abortSignal?: AbortSignal,
   ): Promise<GenerateImageResult> {
     const created: string[] = [];
 
     try {
-      const images = await this.generateImages(input, created);
+      const images = await this.generateImages(input, created, abortSignal);
       return {
         aspectRatio: input.aspectRatio,
         imageSize: input.imageSize,
@@ -185,6 +197,7 @@ export class GenerateImageToolService {
   private async generateImages(
     input: GenerateImageInput,
     created: string[],
+    abortSignal?: AbortSignal,
   ): Promise<GeneratedImage[]> {
     const images: GeneratedImage[] = [];
     let referenceFilePath: string | undefined;
@@ -194,7 +207,9 @@ export class GenerateImageToolService {
     };
 
     for (const image of input.images) {
+      throwIfAborted(abortSignal);
       const filePath = await this.generateWithRetries({
+        abortSignal,
         imageConfig,
         prompt: image.prompt,
         provider: input.provider,
@@ -223,9 +238,13 @@ export class GenerateImageToolService {
     let lastError: unknown;
 
     for (let tryNumber = 1; tryNumber <= MAX_IMAGE_ATTEMPTS; tryNumber += 1) {
+      throwIfAborted(attempt.abortSignal);
       const result = await this.tryGenerateImage(attempt, lastError);
       if (result.filePath !== undefined) {
         return result.filePath;
+      }
+      if (isGenerationAbort(result.error, attempt.abortSignal)) {
+        throw new GenerationCancelledException();
       }
       lastError = result.error;
       this.logger.warn(
@@ -282,6 +301,7 @@ export class GenerateImageToolService {
     if (attempt.provider === "gemini") {
       return this.modelService.requestTextCompletion({
         ...(inputFiles === undefined ? {} : { inputFiles }),
+        abortSignal: attempt.abortSignal,
         imageConfig: attempt.imageConfig,
         model: GENERATE_IMAGE_MODELS.gemini,
         prompt,
@@ -292,6 +312,7 @@ export class GenerateImageToolService {
 
     return this.modelService.requestTextCompletion({
       ...(inputFiles === undefined ? {} : { inputFiles }),
+      abortSignal: attempt.abortSignal,
       imageConfig: attempt.imageConfig,
       model: GENERATE_IMAGE_MODELS["open-ai"],
       prompt,

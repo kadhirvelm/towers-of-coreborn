@@ -106,6 +106,7 @@ export class GeminiService {
   }
 
   public async requestTextCompletion<Request extends ModelRequest<"gemini">>({
+    abortSignal,
     inputFiles,
     prompt,
     instructions,
@@ -135,6 +136,7 @@ export class GeminiService {
     const result = await retryWithBackoff(() =>
       geminiClient.models.generateContent({
         config: this.buildConfig({
+          abortSignal,
           imageConfig,
           instructions,
           maxTokens,
@@ -529,6 +531,7 @@ export class GeminiService {
   }
 
   private buildConfig(params: {
+    abortSignal?: AbortSignal;
     imageConfig?: ModelRequest<"gemini">["imageConfig"];
     instructions?: string;
     maxTokens?: number;
@@ -537,6 +540,7 @@ export class GeminiService {
     temperature?: number;
   }): GenerateContentConfig {
     const config: GenerateContentConfig = {
+      abortSignal: params.abortSignal,
       maxOutputTokens: params.maxTokens,
       systemInstruction: params.instructions,
       temperature: params.temperature ?? 0,

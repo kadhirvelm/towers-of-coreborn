@@ -32,13 +32,17 @@ through an HTTPS tunnel and set `BACKEND_API_URL` to the tunnel URL. The CIMD's
 
 Environment:
 
-- `MCP_OAUTH_ENCRYPTION_KEY`: required in production; 32 random bytes encoded
-  as base64 (`openssl rand -base64 32`).
+- `MCP_OAUTH_ENCRYPTION_KEY`: 32 random bytes encoded as base64
+  (`openssl rand -base64 32`). Local development uses a built-in default when
+  this is unset, so ProductNow sessions survive backend restarts. Production
+  must set its own key.
 - `PRODUCTNOW_MCP_URL`: defaults to `https://api.productnow-prod.com/mcp`.
 
 OAuth tokens, PKCE verifiers, and state are stored per browser in Redis,
 encrypted with AES-256-GCM. The browser only holds an opaque HttpOnly session
-cookie.
+cookie. Agents that need the Spire, the Reach, or other lore call
+`consult-productnow`. That tool runs a research subagent, which uses this
+session and calls ProductNow's read tools.
 
 ## Checks
 

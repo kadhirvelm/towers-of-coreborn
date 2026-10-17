@@ -1,48 +1,65 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, rm, unlink, writeFile } from "node:fs/promises";
+import { mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import {
-  Injectable,
-  InternalServerErrorException,
-  Logger,
-} from "@nestjs/common";
+import { Injectable, InternalServerErrorException } from "@nestjs/common";
 import type { PlayableCardLoreSource } from "@towers-of-coreborn/api";
-import type OpenAI from "openai";
+import { AgentTool } from "@towers-of-coreborn/api";
 import sharp from "sharp";
-import { buildPlayableCardImagePrompt } from "src/asset-classes/playable-card/buildPlayableCardImagePrompt";
-import { parseLoreSearchResult } from "src/asset-classes/playable-card/parseLoreSearchResult";
 import { renderPlayableCardInstructions } from "src/asset-classes/playable-card/playableCardInstructions";
 import {
-  CARD_GAME_FOLDER_ID,
-  MAX_PLAYABLE_CARD_IMAGE_ATTEMPTS,
-  MAX_PLAYABLE_CARD_RESEARCH_TURNS,
-  PLAYABLE_CARD_IMAGE_CONFIG,
+  PLAYABLE_CARD_AGENT_MAX_STEPS,
   PLAYABLE_CARD_IMAGE_FILE_NAME,
-  PLAYABLE_CARD_IMAGE_MODEL,
   PLAYABLE_CARD_MANIFEST_FILE_NAME,
-  PLAYABLE_CARD_TEXT_MODEL,
 } from "src/asset-classes/playable-card/playableCardSpec";
 import { PLAYABLE_CARD_STORAGE } from "src/asset-classes/playable-card/playableCardStorage";
 import {
-  PLAYABLE_CARD_TOOLS,
-  SEARCH_LORE_TOOL_NAME,
-  SUBMIT_PLAYABLE_CARD_TOOL_NAME,
+  createPlayableCardResearchTools,
+  type PlayableCardResearchState,
+  SEARCH_LORE_TOOL_ID,
+  SUBMIT_PLAYABLE_CARD_TOOL_ID,
 } from "src/asset-classes/playable-card/playableCardTools";
+import { readPlayableCardImage } from "src/asset-classes/playable-card/readPlayableCardImage";
+import type { PlayableCardDraft } from "src/asset-classes/playable-card/validatePlayableCardDraft";
 import {
-  type PlayableCardDraft,
-  validatePlayableCardDraft,
-} from "src/asset-classes/playable-card/validatePlayableCardDraft";
-import { ModelService } from "src/model/model.service";
-import { OpenAIService } from "src/model/openAI.service";
+  ASSET_CLASS_COORDINATOR_MODEL,
+  type TowersOfCorebornAgentChatResults,
+  TowersOfCorebornAgentService,
+} from "src/mastra/shared/towersOfCorebornAgent.service";
+import {
+  collectImageFilePaths,
+  deleteImageFiles,
+  type GeneratedImage,
+} from "src/mastra/tools/generateImageTool.service";
 import { ProductNowMcpService } from "src/product-now-mcp/product-now-mcp.service";
+import { runWithProductNowSession } from "src/product-now-mcp/productNowSessionContext";
+import { GenerationAbortCoordinator } from "../generationAbort.coordinator";
+import {
+  GenerationCancelledException,
+  isGenerationAbort,
+  throwIfAborted,
+} from "../generationCancelled";
 import type { QueryableAgent } from "../queryableAgent";
 
 const MIN_IMAGE_EDGE_PX = 64;
 
 /**
+ * Registered catalog tools this agent calls.
+ * Lore search and card submission are built per query because they close over
+ * the browser's ProductNow session.
+ */
+export enum CardGeneratorAgentTool {
+  // biome-ignore lint/style/useLiteralEnumMembers: value is the shared AgentTool id
+  ConsultProductNow = AgentTool.ConsultProductNow,
+  // biome-ignore lint/style/useLiteralEnumMembers: value is the shared AgentTool id
+  GenerateImage = AgentTool.GenerateImage,
+}
+
+/**
  * Input for one card-generator query.
  */
 export interface CardGeneratorInput {
+  /** Client id used to stop this run */
+  generationId: string;
   /** What the player asked the card to be about */
   prompt: string;
   /** Browser session that holds the ProductNow OAuth tokens */
@@ -57,19 +74,18 @@ export interface CardGeneratorResult {
   cardId: string;
 }
 
-interface ToolStep {
-  draft?: PlayableCardDraft;
-  outputs: OpenAI.Responses.ResponseInput;
-}
-
 /**
  * Card-generator agent. Call {@link CardGeneratorAgent.query} with a prompt
- * and the browser's ProductNow session. It searches the Lore document, writes
- * one playable card, paints it, and stores the set.
+ * and the browser's ProductNow session. It gives the Mastra agent
+ * `consult-productnow`, Lore search, card submission, and `generate-image`.
+ * `consult-productnow` runs the ProductNow research subagent. The
+ * instructions carry the combat rules and the watercolor prompt the image
+ * tool must receive.
  *
  * @example
  * ```typescript
  * const result = await cardGeneratorAgent.query({
+ *   generationId,
  *   prompt: "a card about the first Coreborn bond",
  *   sessionId,
  * });
@@ -80,221 +96,109 @@ interface ToolStep {
 export class CardGeneratorAgent
   implements QueryableAgent<CardGeneratorInput, CardGeneratorResult>
 {
-  private readonly logger = new Logger(CardGeneratorAgent.name);
-
   public constructor(
-    private readonly openAIService: OpenAIService,
-    private readonly modelService: ModelService,
+    private readonly agents: TowersOfCorebornAgentService,
     private readonly productNowMcpService: ProductNowMcpService,
+    private readonly generationAbort: GenerationAbortCoordinator,
   ) {}
 
   /**
+   * Stops an in-flight card generation on whichever process is running it.
+   * @param generationId - Id passed to {@link CardGeneratorAgent.query}
+   * @returns Whether the stop was recorded
+   */
+  public abort(generationId: string): Promise<boolean> {
+    return this.generationAbort.stop(generationId);
+  }
+
+  /**
    * Searches Lore, writes the card, paints it, and stores the set.
-   * @param input - User prompt and the browser's ProductNow session
+   * @param input - User prompt, ProductNow session, and the id that can stop it
    * @returns The saved card id
+   * @throws GenerationCancelledException when the run is stopped
    * @throws InternalServerErrorException when research or painting fails
    */
   public async query(input: CardGeneratorInput): Promise<CardGeneratorResult> {
-    const draft = await this.writeCard(input);
-    const cardId = await this.paintAndStore(
-      input.prompt,
-      draft.draft,
-      draft.loreSources,
-    );
-    return { cardId };
-  }
-
-  /**
-   * Runs the OpenAI tool loop until a Lore-backed card is submitted.
-   * The first turn is required to call `search_lore`.
-   * @param input - User prompt and ProductNow session
-   * @returns The accepted draft and the passages it was written from
-   */
-  private async writeCard(input: CardGeneratorInput): Promise<{
-    draft: PlayableCardDraft;
-    loreSources: PlayableCardLoreSource[];
-  }> {
-    const loreSources: PlayableCardLoreSource[] = [];
-    let response = await this.openAIService.createResponse({
-      input: `Create one playable card from this request:\n${input.prompt}`,
-      instructions: renderPlayableCardInstructions(),
-      model: PLAYABLE_CARD_TEXT_MODEL,
-      toolChoice: { name: SEARCH_LORE_TOOL_NAME, type: "function" },
-      tools: PLAYABLE_CARD_TOOLS,
-    });
-
-    for (let turn = 0; turn < MAX_PLAYABLE_CARD_RESEARCH_TURNS; turn += 1) {
-      const step = await this.runToolCalls(
-        response.output,
-        input.sessionId,
-        loreSources,
+    const run = await this.generationAbort.begin(input.generationId);
+    const state: PlayableCardResearchState = { loreSources: [] };
+    let imagePaths: string[] = [];
+    try {
+      throwIfAborted(run.signal);
+      const result = await runWithProductNowSession(input.sessionId, () =>
+        this.agents.runChatWithTools({
+          abortSignal: run.signal,
+          agentConfig: {
+            id: "card-generator-agent",
+            instructions: renderPlayableCardInstructions(),
+            maxSteps: PLAYABLE_CARD_AGENT_MAX_STEPS,
+            model: [{ model: ASSET_CLASS_COORDINATOR_MODEL }],
+            name: "card-generator-agent",
+          },
+          prompt: `Create one playable card from this request:\n${input.prompt}`,
+          tools: {
+            ...this.agents.towersOfCorebornAgentToolRegistry.buildTools(
+              CardGeneratorAgentTool,
+            ),
+            ...createPlayableCardResearchTools({
+              productNow: this.productNowMcpService,
+              sessionId: input.sessionId,
+              signal: run.signal,
+              state,
+            }),
+          },
+        }),
       );
-      if (step.draft !== undefined && loreSources.length > 0) {
-        return { draft: step.draft, loreSources };
-      }
-      if (step.outputs.length === 0) {
-        throw new InternalServerErrorException(
-          "Playable card generation stopped before a card was submitted.",
-        );
-      }
-      if (turn === MAX_PLAYABLE_CARD_RESEARCH_TURNS - 1) {
-        break;
-      }
-
-      response = await this.openAIService.createResponse({
-        input: step.outputs,
-        instructions: renderPlayableCardInstructions(),
-        model: PLAYABLE_CARD_TEXT_MODEL,
-        previousResponseId: response.id,
-        tools: PLAYABLE_CARD_TOOLS,
+      imagePaths = result.toolResults.flatMap((call) =>
+        collectImageFilePaths(call.result),
+      );
+      throwIfAborted(run.signal);
+      const painted = readPaintedCard(result, state);
+      const cardId = await this.storeCard({
+        draft: painted.draft,
+        image: painted.image,
+        loreSources: state.loreSources,
+        prompt: input.prompt,
+        signal: run.signal,
       });
-    }
-
-    throw new InternalServerErrorException(
-      "Playable card generation did not submit a Lore-backed card.",
-    );
-  }
-
-  /**
-   * Runs Lore searches before card submission so a submit in the same turn
-   * can see the passages just retrieved.
-   * @param output - Model output items for this turn
-   * @param sessionId - ProductNow browser session
-   * @param loreSources - Passages collected across turns
-   * @returns Tool outputs and a draft when submission was accepted
-   */
-  private async runToolCalls(
-    output: OpenAI.Responses.ResponseOutputItem[],
-    sessionId: string,
-    loreSources: PlayableCardLoreSource[],
-  ): Promise<ToolStep> {
-    const calls = output.filter(isFunctionCall);
-    const searches = calls.filter(
-      (call) => call.name === SEARCH_LORE_TOOL_NAME,
-    );
-    const submits = calls.filter(
-      (call) => call.name === SUBMIT_PLAYABLE_CARD_TOOL_NAME,
-    );
-    const others = calls.filter(
-      (call) =>
-        call.name !== SEARCH_LORE_TOOL_NAME &&
-        call.name !== SUBMIT_PLAYABLE_CARD_TOOL_NAME,
-    );
-
-    const outputs: OpenAI.Responses.ResponseInputItem[] = [];
-    for (const call of searches) {
-      outputs.push(await this.searchLore(call, sessionId, loreSources));
-    }
-
-    let draft: PlayableCardDraft | undefined;
-    for (const call of submits) {
-      const submitted = this.submitCard(call, loreSources);
-      outputs.push(submitted.output);
-      draft = submitted.draft ?? draft;
-    }
-
-    for (const call of others) {
-      outputs.push(functionOutput(call.call_id, "Unknown tool."));
-    }
-
-    return { draft, outputs };
-  }
-
-  /**
-   * Searches ProductNow and keeps only Lore-document passages.
-   * @param call - Model function call
-   * @param sessionId - ProductNow browser session
-   * @param loreSources - Passages collected so far
-   * @returns Tool output describing the passages or a retry instruction
-   */
-  private async searchLore(
-    call: OpenAI.Responses.ResponseFunctionToolCall,
-    sessionId: string,
-    loreSources: PlayableCardLoreSource[],
-  ): Promise<OpenAI.Responses.ResponseInputItem> {
-    const query = readSearchQuery(parseToolArguments(call.arguments));
-    if (query === undefined) {
-      return functionOutput(
-        call.call_id,
-        "Pass a query of 2 to 400 characters.",
-      );
-    }
-
-    const raw = await this.productNowMcpService.callTool(sessionId, "search", {
-      folderId: CARD_GAME_FOLDER_ID,
-      query,
-      resultType: "documents",
-      searchScope: "workspace",
-    });
-    const hits = parseLoreSearchResult(raw);
-    for (const hit of hits) {
-      const alreadyKept = loreSources.some(
-        (source) => source.excerpt === hit.excerpt,
-      );
-      if (!alreadyKept) {
-        loreSources.push(hit);
+      return { cardId };
+    } catch (error) {
+      if (isGenerationAbort(error, run.signal)) {
+        throw new GenerationCancelledException();
       }
+      throw error;
+    } finally {
+      await deleteImageFiles(imagePaths);
+      await run.end();
     }
-    return functionOutput(call.call_id, formatLoreHits(hits));
   }
 
   /**
-   * Accepts a card only after at least one Lore passage has been retrieved.
-   * @param call - Model function call
-   * @param loreSources - Passages collected so far
-   * @returns Tool output, and the draft when the card is legal
-   */
-  private submitCard(
-    call: OpenAI.Responses.ResponseFunctionToolCall,
-    loreSources: PlayableCardLoreSource[],
-  ): { draft?: PlayableCardDraft; output: OpenAI.Responses.ResponseInputItem } {
-    if (loreSources.length === 0) {
-      return {
-        output: functionOutput(
-          call.call_id,
-          "Search the Lore document and use a returned passage before submitting.",
-        ),
-      };
-    }
-
-    const validated = validatePlayableCardDraft(
-      parseToolArguments(call.arguments),
-    );
-    if ("error" in validated) {
-      return { output: functionOutput(call.call_id, validated.error) };
-    }
-
-    return {
-      draft: validated.draft,
-      output: functionOutput(call.call_id, "Card accepted."),
-    };
-  }
-
-  /**
-   * Paints the card and writes its manifest.
-   * The directory is removed when painting fails.
-   * @param prompt - Original user prompt
-   * @param draft - Accepted card text
-   * @param loreSources - Lore passages used to write it
+   * Copies the portrait into a card directory and writes the manifest.
+   * The directory is removed when saving fails.
+   * @param params - Accepted card, Lore passages, and the painted file
    * @returns Saved card id
    */
-  private async paintAndStore(
-    prompt: string,
-    draft: PlayableCardDraft,
-    loreSources: PlayableCardLoreSource[],
-  ): Promise<string> {
+  private async storeCard(params: {
+    draft: PlayableCardDraft;
+    image: GeneratedImage;
+    loreSources: PlayableCardLoreSource[];
+    prompt: string;
+    signal: AbortSignal;
+  }): Promise<string> {
+    throwIfAborted(params.signal);
     const cardId = randomUUID();
     const directory = PLAYABLE_CARD_STORAGE.filePath(cardId);
     await mkdir(directory, { recursive: true });
 
     try {
-      await this.writeIllustration(directory, draft);
-      await this.writeManifest({
+      await persistIllustration(params.image.filePath, directory);
+      throwIfAborted(params.signal);
+      await writeManifest({
         cardId,
         directory,
-        draft,
-        loreSources,
-        prompt,
+        draft: params.draft,
+        loreSources: params.loreSources,
+        prompt: params.prompt,
       });
       return cardId;
     } catch (error) {
@@ -302,110 +206,56 @@ export class CardGeneratorAgent
       throw error;
     }
   }
+}
 
-  /**
-   * Asks OpenAI for a portrait and retries when the file is unusable.
-   * @param directory - Card directory
-   * @param draft - Accepted card, including the scene to paint
-   */
-  private async writeIllustration(
-    directory: string,
-    draft: PlayableCardDraft,
-  ): Promise<void> {
-    let lastError: unknown;
-    for (
-      let attempt = 1;
-      attempt <= MAX_PLAYABLE_CARD_IMAGE_ATTEMPTS;
-      attempt += 1
-    ) {
-      const error = await this.tryWriteIllustration(directory, draft);
-      if (error === undefined) {
-        return;
-      }
-      lastError = error;
-      this.logger.warn(
-        `Playable card image attempt ${attempt} failed: ${formatError(lastError)}`,
-      );
-    }
-
+/**
+ * Requires a Lore-backed draft and one successful generate-image call.
+ * A tool error wins over a later success.
+ * @param result - Text, tool results, and tool errors from the agent run
+ * @param state - Draft and passages the research tools recorded
+ * @returns The accepted card and the portrait file
+ * @throws InternalServerErrorException when research or painting did not finish
+ */
+function readPaintedCard(
+  result: TowersOfCorebornAgentChatResults,
+  state: PlayableCardResearchState,
+): { draft: PlayableCardDraft; image: GeneratedImage } {
+  const failedTool = result.toolErrors.find(
+    (error) =>
+      error.toolName === AgentTool.GenerateImage ||
+      error.toolName === SEARCH_LORE_TOOL_ID ||
+      error.toolName === SUBMIT_PLAYABLE_CARD_TOOL_ID,
+  );
+  if (failedTool !== undefined) {
     throw new InternalServerErrorException(
-      `Failed to paint the playable card after ${MAX_PLAYABLE_CARD_IMAGE_ATTEMPTS} attempts: ${formatError(lastError)}`,
+      `Playable card generation failed: ${failedTool.errorMessage}`,
     );
   }
 
-  /**
-   * One image attempt. Removes the staged model file either way.
-   * @param directory - Card directory
-   * @param draft - Accepted card
-   * @returns The error from this attempt, or `undefined` when the PNG was saved
-   */
-  private async tryWriteIllustration(
-    directory: string,
-    draft: PlayableCardDraft,
-  ): Promise<unknown> {
-    let generatedPath: string | undefined;
-    try {
-      generatedPath = await this.modelService.requestTextCompletion({
-        imageConfig: PLAYABLE_CARD_IMAGE_CONFIG,
-        model: PLAYABLE_CARD_IMAGE_MODEL,
-        prompt: buildPlayableCardImagePrompt({
-          name: draft.name,
-          scene: draft.scene,
-        }),
-        schema: "image",
-        type: "open-ai",
-      });
-      await persistIllustration(generatedPath, directory);
-      return undefined;
-    } catch (error) {
-      return error;
-    } finally {
-      if (generatedPath !== undefined) {
-        await unlink(generatedPath).catch(() => undefined);
-      }
-    }
-  }
-
-  /**
-   * @param params - Card text, Lore passages, and destination
-   */
-  private async writeManifest(params: {
-    cardId: string;
-    directory: string;
-    draft: PlayableCardDraft;
-    loreSources: PlayableCardLoreSource[];
-    prompt: string;
-  }): Promise<void> {
-    const firstEffect = params.draft.effects[0];
-    if (firstEffect === undefined) {
-      throw new InternalServerErrorException(
-        "Playable card generation accepted a card with no effects.",
-      );
-    }
-
-    const manifest = {
-      aetherCost: params.draft.aetherCost,
-      cardId: params.cardId,
-      createdAt: new Date().toISOString(),
-      description: params.draft.description,
-      effects: params.draft.effects,
-      imageFileName: PLAYABLE_CARD_IMAGE_FILE_NAME,
-      kind: firstEffect.kind,
-      loreSources: params.loreSources,
-      name: params.draft.name,
-      prompt: params.prompt,
-    };
-
-    await writeFile(
-      join(params.directory, PLAYABLE_CARD_MANIFEST_FILE_NAME),
-      JSON.stringify(manifest, null, 2),
+  if (state.draft === undefined || state.loreSources.length === 0) {
+    throw new InternalServerErrorException(
+      "Playable card generation did not submit a Lore-backed card.",
     );
   }
+
+  const imageCall = result.toolResults.find(
+    (call) => call.toolName === AgentTool.GenerateImage,
+  );
+  if (imageCall === undefined) {
+    throw new InternalServerErrorException(
+      "Playable card generation failed: the agent finished without calling generate-image.",
+    );
+  }
+
+  return {
+    draft: state.draft,
+    image: readPlayableCardImage(imageCall.result),
+  };
 }
 
 /**
  * Re-encodes a model image as PNG into the card directory.
- * @param generatedPath - Temp path returned by OpenAI
+ * @param generatedPath - Temp path returned by the generate-image tool
  * @param directory - Card directory
  */
 async function persistIllustration(
@@ -426,86 +276,37 @@ async function persistIllustration(
 }
 
 /**
- * @param hits - Lore passages from one search
- * @returns Text returned to the model
+ * @param params - Card text, Lore passages, and destination
  */
-function formatLoreHits(hits: PlayableCardLoreSource[]): string {
-  if (hits.length === 0) {
-    return "No passages in the Lore document matched. Search again with a specific Reach subject: a floor, the Trials, a Coreborn, the Warden Compact, the Sundering, or the Verity.";
+async function writeManifest(params: {
+  cardId: string;
+  directory: string;
+  draft: PlayableCardDraft;
+  loreSources: PlayableCardLoreSource[];
+  prompt: string;
+}): Promise<void> {
+  const firstEffect = params.draft.effects[0];
+  if (firstEffect === undefined) {
+    throw new InternalServerErrorException(
+      "Playable card generation accepted a card with no effects.",
+    );
   }
 
-  const lines = hits.map((hit, index) => `${index + 1}. ${hit.excerpt}`);
-  return ["Lore document passages:", ...lines].join("\n");
-}
-
-/**
- * @param argumentsJson - JSON string from a function call
- * @returns Parsed JSON, or `undefined` when it is not JSON
- */
-function parseToolArguments(argumentsJson: string): unknown {
-  try {
-    return JSON.parse(argumentsJson) as unknown;
-  } catch {
-    return undefined;
-  }
-}
-
-/**
- * @param value - Parsed search-tool arguments
- * @returns A usable query
- */
-function readSearchQuery(value: unknown): string | undefined {
-  if (!isRecord(value) || typeof value.query !== "string") {
-    return undefined;
-  }
-  const query = value.query.trim();
-  if (query.length < 2 || query.length > 400) {
-    return undefined;
-  }
-  return query;
-}
-
-/**
- * @param item - One Responses output item
- * @returns Whether the item is a function call
- */
-function isFunctionCall(
-  item: OpenAI.Responses.ResponseOutputItem,
-): item is OpenAI.Responses.ResponseFunctionToolCall {
-  return item.type === "function_call";
-}
-
-/**
- * @param callId - Function call id to answer
- * @param output - Text the model should read next
- * @returns A function-call output item
- */
-function functionOutput(
-  callId: string,
-  output: string,
-): OpenAI.Responses.ResponseInputItem {
-  return {
-    call_id: callId,
-    output,
-    type: "function_call_output",
+  const manifest = {
+    aetherCost: params.draft.aetherCost,
+    cardId: params.cardId,
+    createdAt: new Date().toISOString(),
+    description: params.draft.description,
+    effects: params.draft.effects,
+    imageFileName: PLAYABLE_CARD_IMAGE_FILE_NAME,
+    kind: firstEffect.kind,
+    loreSources: params.loreSources,
+    name: params.draft.name,
+    prompt: params.prompt,
   };
-}
 
-/**
- * @param value - Unknown JSON value
- * @returns Whether the value is a non-null object
- */
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-/**
- * @param error - Thrown or returned failure
- * @returns A single-line message
- */
-function formatError(error: unknown): string {
-  if (error instanceof Error) {
-    return error.message;
-  }
-  return String(error);
+  await writeFile(
+    join(params.directory, PLAYABLE_CARD_MANIFEST_FILE_NAME),
+    JSON.stringify(manifest, null, 2),
+  );
 }

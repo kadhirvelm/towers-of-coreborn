@@ -6,11 +6,19 @@ import { createAssetClassGallery } from "./createAssetClassGallery";
 
 const PlayableCardGallery = createAssetClassGallery({
   list: (callers) => callers.playableCard.list(),
-  render: ({ error, isLoading, onDismissJob, pendingJobs, result }) => (
+  render: ({
+    error,
+    isLoading,
+    onDismissJob,
+    onStopJob,
+    pendingJobs,
+    result,
+  }) => (
     <PlayableCardList
       error={error}
       isLoading={isLoading}
       onDismissJob={onDismissJob}
+      onStopJob={onStopJob}
       pendingJobs={pendingJobs}
       result={result}
     />
@@ -18,6 +26,8 @@ const PlayableCardGallery = createAssetClassGallery({
 });
 
 export const PLAYABLE_CARD_ASSET_CLASS: AssetClassDefinition = {
+  cancel: (callers, generationId) =>
+    callers.playableCard.cancel({ generationId }),
   dialogDescription:
     "Describe a card. We'll search the Lore document, then write its flavor, rules, and illustration.",
   dialogTitle: "Generate Playable Card",
@@ -28,7 +38,8 @@ export const PLAYABLE_CARD_ASSET_CLASS: AssetClassDefinition = {
     submitLabel: "Generate card",
   },
   Gallery: PlayableCardGallery,
-  generate: (callers, prompt) => callers.playableCard.generate({ prompt }),
+  generate: (callers, prompt, generationId) =>
+    callers.playableCard.generate({ generationId, prompt }),
   generateButtonLabel: "+ Generate card",
   id: "playable-cards",
   subtitle: "playable card generation",

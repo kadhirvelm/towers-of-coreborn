@@ -2,6 +2,7 @@ import { Injectable, InternalServerErrorException } from "@nestjs/common";
 import type { BattleBackgroundServiceApi } from "@towers-of-coreborn/api";
 import { ConfigurationService } from "src/configuration/configuration.service";
 import { BattleBackgroundAgent } from "src/mastra/agents/battle-background/battleBackgroundAgent";
+import { requireGenerationId } from "../shared/requireGenerationId";
 import { requireGenerationPrompt } from "../shared/requireGenerationPrompt";
 import { BATTLE_BACKGROUND_STORAGE } from "./battleBackgroundStorage";
 import {
@@ -18,7 +19,19 @@ export class BattleBackgroundService {
   ) {}
 
   /**
-   * @param payload - Natural-language room idea
+   * Stops an in-flight background generation.
+   * @param payload - Client generation id
+   * @returns Whether the stop was recorded
+   */
+  public async cancel(
+    payload: BattleBackgroundServiceApi["cancel"]["payload"],
+  ): Promise<BattleBackgroundServiceApi["cancel"]["response"]> {
+    const generationId = requireGenerationId(payload.generationId);
+    return { stopped: await this.agent.abort(generationId) };
+  }
+
+  /**
+   * @param payload - Natural-language room idea and the id that can stop it
    * @returns Newly stored background
    */
   public async generate(
@@ -28,7 +41,8 @@ export class BattleBackgroundService {
       payload.prompt,
       "Describe the battle room to generate.",
     );
-    const { id } = await this.agent.query({ prompt });
+    const generationId = requireGenerationId(payload.generationId);
+    const { id } = await this.agent.query({ generationId, prompt });
     const asset = await readBattleBackground(
       BATTLE_BACKGROUND_STORAGE.rootPath(),
       id,

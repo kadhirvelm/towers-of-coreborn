@@ -64,6 +64,15 @@ export interface TowersOfCorebornAgentConfig {
    */
   name: string;
   /**
+   * Shown to a coordinator as the description of this subagent's delegation tool.
+   */
+  description?: string;
+  /**
+   * Subagents this agent can delegate to.
+   * Mastra exposes each one as a tool named `agent-<key>`.
+   */
+  agents?: AgentConfig["agents"];
+  /**
    * Maximum number of tool calls to execute concurrently within a single step.
    * Defaults to Mastra's built-in default (10).
    */
@@ -106,6 +115,8 @@ export class TowersOfCorebornAgent extends MastraAgent {
 
     super({
       ...(Object.keys(defaultOptions).length > 0 && { defaultOptions }),
+      agents: config.agents,
+      description: config.description,
       id: config.id,
       instructions: `${GLOBAL_AGENT_INSTRUCTIONS()} ${config.instructions}`,
       model: config.model,

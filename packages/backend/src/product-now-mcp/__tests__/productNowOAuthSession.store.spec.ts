@@ -53,6 +53,25 @@ describe("ProductNowOAuthSessionStore", () => {
     expect([...values.values()].join("")).not.toContain("secret-access-token");
   });
 
+  it("discards a session encrypted with a different key", async () => {
+    const { redis, values } = createRedis();
+    const writer = new ProductNowOAuthSessionStore(
+      createConfiguration(Buffer.alloc(32, 7).toString("base64")),
+      redis,
+    );
+    const reader = new ProductNowOAuthSessionStore(
+      createConfiguration(Buffer.alloc(32, 9).toString("base64")),
+      redis,
+    );
+
+    await writer.update("browser-session", () => ({
+      tokens: { access_token: "secret-access-token", token_type: "Bearer" },
+    }));
+
+    expect(await reader.get("browser-session")).toEqual({});
+    expect(values.size).toBe(0);
+  });
+
   it("rejects encryption keys that are not 32 bytes", () => {
     const { redis } = createRedis();
 

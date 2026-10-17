@@ -15,8 +15,9 @@ import { ASSET_CLASS_GENERATION_TIMEOUT_MS } from "../shared/createAssetClassCon
 import { PlayableCardService } from "./playable-card.service";
 
 /**
- * `POST /playable-cards/generate` and `POST /playable-cards/list`.
- * Generation uses the browser's ProductNow session to search the Lore document.
+ * `POST /playable-cards/generate`, `POST /playable-cards/cancel`, and
+ * `POST /playable-cards/list`. Generation uses the browser's ProductNow
+ * session to search the Lore document.
  */
 @UseInterceptors(TimeoutInterceptor)
 @Controller(PlayableCardServiceDefinition.controller)
@@ -26,6 +27,16 @@ export class PlayableCardController
   public constructor(
     private readonly playableCardService: PlayableCardService,
   ) {}
+
+  /**
+   * Stops an in-flight playable-card generation.
+   * @param payload - Client generation id
+   * @returns Whether the stop was recorded
+   */
+  @getDecorator(PlayableCardServiceDefinition.endpoints.cancel)
+  public cancel(@Body() payload: PlayableCardServiceApi["cancel"]["payload"]) {
+    return this.playableCardService.cancel(payload);
+  }
 
   /**
    * Generates one playable card for the connected ProductNow browser.

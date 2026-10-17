@@ -32,24 +32,9 @@ export class ProductNowOAuthSessionStore {
     configurationService: ConfigurationService,
     private readonly redisService: RedisService,
   ) {
-    const configuredKey = configurationService.get("MCP_OAUTH_ENCRYPTION_KEY");
-    const isProduction = configurationService.get("NODE_ENV") === "production";
-
-    if (configuredKey) {
-      this.encryptionKey = this.decodeEncryptionKey(configuredKey);
-      return;
-    }
-
-    if (isProduction) {
-      throw new Error(
-        "MCP_OAUTH_ENCRYPTION_KEY must be set in production (32 random bytes encoded as base64)",
-      );
-    }
-
-    this.logger.warn(
-      "MCP_OAUTH_ENCRYPTION_KEY is not set; ProductNow OAuth sessions will be invalid after this development process restarts",
+    this.encryptionKey = this.decodeEncryptionKey(
+      configurationService.get("MCP_OAUTH_ENCRYPTION_KEY"),
     );
-    this.encryptionKey = randomBytes(32);
   }
 
   /**
@@ -62,19 +47,30 @@ export class ProductNowOAuthSessionStore {
 
   /**
    * Reads and decrypts one browser's ProductNow OAuth session.
+   * An unreadable payload, including one encrypted with a previous key, is
+   * deleted so the browser can connect again.
    * @param sessionId - Opaque browser session identifier
    * @returns Stored session, or an empty session when none exists
    */
   public async get(sessionId: string): Promise<ProductNowOAuthSession> {
-    const encryptedSession = await this.redisService.get(
-      this.getSessionKey(sessionId),
-    );
+    const sessionKey = this.getSessionKey(sessionId);
+    const encryptedSession = await this.redisService.get(sessionKey);
 
     if (!encryptedSession) {
       return {};
     }
 
-    return JSON.parse(this.decrypt(encryptedSession)) as ProductNowOAuthSession;
+    try {
+      return JSON.parse(
+        this.decrypt(encryptedSession),
+      ) as ProductNowOAuthSession;
+    } catch (error) {
+      this.logger.warn(
+        `Discarding unreadable ProductNow OAuth session: ${this.describeError(error)}`,
+      );
+      await this.redisService.del(sessionKey);
+      return {};
+    }
   }
 
   /**
@@ -109,6 +105,18 @@ export class ProductNowOAuthSessionStore {
       );
     }
     return key;
+  }
+
+  /**
+   * Formats an error for session-store logs.
+   * @param error - Caught decryption or parse failure
+   * @returns Message safe to log
+   */
+  private describeError(error: unknown): string {
+    if (error instanceof Error) {
+      return error.message;
+    }
+    return "Unknown session read failure";
   }
 
   /**

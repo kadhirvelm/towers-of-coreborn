@@ -45,12 +45,24 @@ that package directory.
 - Shared Mastra tools: declare them on the `AgentTool` enum in
   `packages/api/src/agents/tools.ts` and register them in
   `packages/backend/src/mastra/shared/towersOfCorebornAgentToolRegistry.ts`.
-  An agent opts in with its own enum whose values are `AgentTool` members.
+  An agent opts in with its own enum whose values are `AgentTool` members
+  and passes that enum to the agent runner, which loads the tools.
 - Agents: `packages/backend/src/mastra/agents/<name>/`. Each agent is a Nest
   service with a `query` method. Asset classes call `query`; they do not
   construct Mastra agents themselves. `battle-background` paints battle rooms,
   `card-character` paints four-level portraits, and `card-generator` writes one
-  lore-backed playable card.
+  lore-backed playable card. Painting goes through the shared `generate-image`
+  tool. The agent's instructions carry the art direction, and the agent passes
+  that direction in the tool call. Asset classes do not call image providers
+  themselves. `consult-productnow` is a registry tool that runs a research
+  subagent. That subagent loads ProductNow's read tools for the browser's
+  OAuth session itself, so those MCP tools are not in the shared registry.
+  Lore and room agents opt into `consult-productnow`. A tool that needs
+  per-request context, such as a Lore search for
+  the browser's ProductNow session, is built for that query and passed to the
+  runner with the registry tools. Each query takes a `generationId` and keeps an
+  `AbortController` for that run. `abort` writes the stop to Redis and
+  publishes it, so a cancel request can stop a run on another process.
 
 Use Nest dependency injection. Read environment values through
 `ConfigurationService` outside startup/configuration code. Use the shared
@@ -107,7 +119,8 @@ Service callers return `ServiceError` values rather than throwing. Check
 - Document every function, method, and React component added with concise
   JSDoc, including parameters and return behavior.
 - Keep React components focused; separate business logic from presentation.
-- Add utility tests beside the implementation using `.test.ts`.
+- Put tests in a sibling `__tests__` directory. Use `.test.ts` for utilities
+  and `.spec.ts` for Nest services.
 - Do not commit generated output (`dist`, `.next`, `.turbo`, generated Prisma
   clients), credentials, or runtime-generated assets.
 

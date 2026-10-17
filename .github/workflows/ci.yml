@@ -29,6 +29,9 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
+      - name: Build CLI package
+        run: cd toc-cli && bun run build && bun install
+
       - name: Lint
         run: bun run lint
 
@@ -45,6 +48,9 @@ jobs:
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
+      
+      - name: Build CLI package
+        run: cd toc-cli && bun run build && bun install
 
       - name: Typecheck
         run: bun run check
@@ -79,6 +85,9 @@ jobs:
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
+
+      - name: Build CLI package
+        run: cd toc-cli && bun run build && bun install
 
       - name: Build packages the tests import
         run: bunx turbo run build --filter=@towers-of-coreborn/api --filter=@towers-of-coreborn/database

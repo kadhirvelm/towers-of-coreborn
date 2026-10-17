@@ -2,6 +2,7 @@ import { Injectable, InternalServerErrorException } from "@nestjs/common";
 import { CardCharacterServiceApi } from "@towers-of-coreborn/api";
 import { ConfigurationService } from "src/configuration/configuration.service";
 import { CardCharacterAgent } from "src/mastra/agents/card-character/cardCharacterAgent";
+import { requireGenerationId } from "../shared/requireGenerationId";
 import { requireGenerationPrompt } from "../shared/requireGenerationPrompt";
 import { CARD_CHARACTER_STORAGE } from "./cardCharacterStorage";
 import {
@@ -21,10 +22,22 @@ export class CardCharacterService {
   ) {}
 
   /**
+   * Stops an in-flight character generation.
+   * @param payload - Client generation id
+   * @returns Whether the stop was recorded
+   */
+  public async cancel(
+    payload: CardCharacterServiceApi["cancel"]["payload"],
+  ): Promise<CardCharacterServiceApi["cancel"]["response"]> {
+    const generationId = requireGenerationId(payload.generationId);
+    return { stopped: await this.cardCharacterAgent.abort(generationId) };
+  }
+
+  /**
    * Runs the card-character agent and returns the saved set.
-   * @param payload - Natural-language description of the character
+   * @param payload - Natural-language description of the character and the id that can stop it
    * @returns The stored set with absolute portrait URLs
-   * @throws BadRequestException when the prompt is empty
+   * @throws BadRequestException when the prompt is empty or the generation id is not a UUID
    * @throws InternalServerErrorException when generation fails or the set cannot be read back
    */
   public async generate(
@@ -34,7 +47,11 @@ export class CardCharacterService {
       payload.prompt,
       "Describe the character to generate.",
     );
-    const { setId } = await this.cardCharacterAgent.query({ prompt });
+    const generationId = requireGenerationId(payload.generationId);
+    const { setId } = await this.cardCharacterAgent.query({
+      generationId,
+      prompt,
+    });
     const set = await readCardCharacterSet(
       CARD_CHARACTER_STORAGE.rootPath(),
       setId,

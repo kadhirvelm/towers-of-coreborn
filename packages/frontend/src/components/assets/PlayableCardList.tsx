@@ -14,6 +14,7 @@ interface PlayableCardListProps {
   error: string | null;
   isLoading: boolean;
   onDismissJob: (id: string) => void;
+  onStopJob: (id: string) => void;
   pendingJobs: PendingJob[];
   result: ListPlayableCardsResponse | null;
 }
@@ -38,6 +39,7 @@ export function PlayableCardList({
   error,
   isLoading,
   onDismissJob,
+  onStopJob,
   pendingJobs,
   result,
 }: PlayableCardListProps) {
@@ -78,6 +80,7 @@ export function PlayableCardList({
               job={job}
               key={job.id}
               onDismiss={() => onDismissJob(job.id)}
+              onStop={() => onStopJob(job.id)}
             />
           ))}
           {cards.map((card) => (

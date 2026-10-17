@@ -18,8 +18,20 @@ export interface AgentBasicTool {
  * The value is the id the model calls.
  */
 export enum AgentTool {
+  /**
+   * Asks the ProductNow research subagent one question about the Spire, the Reach, or other lore.
+   * The subagent loads ProductNow's read tools for the browser session.
+   */
+  ConsultProductNow = "consult-productnow",
   /** Paints one or more images with Gemini or OpenAI. */
   GenerateImage = "generate-image",
+}
+
+/**
+ * Runs the ProductNow research subagent for one lore question.
+ */
+export interface ConsultProductNowTool extends AgentBasicTool {
+  type: AgentTool.ConsultProductNow;
 }
 
 /**
@@ -31,6 +43,7 @@ export interface GenerateImageTool extends AgentBasicTool {
 
 /** Shared agent tools keyed by name. Add an entry here for tools any agent can use. */
 export type AllAgentTools = {
+  consultProductNow: ConsultProductNowTool;
   generateImage: GenerateImageTool;
 };
 
@@ -54,10 +67,15 @@ export type AgentToolSelection = readonly ToolId[] | Record<string, string>;
 /** Visitor for agent tools. Adding a tool requires a branch here. */
 export const AgentTools: VisitorPattern<AllAgentTools> = {
   typeChecks: {
+    consultProductNow: (value): value is ConsultProductNowTool =>
+      value.type === AgentTool.ConsultProductNow,
     generateImage: (value): value is GenerateImageTool =>
       value.type === AgentTool.GenerateImage,
   },
   visit: (value, visitor) => {
+    if (AgentTools.typeChecks.consultProductNow(value)) {
+      return visitor.consultProductNow(value);
+    }
     if (AgentTools.typeChecks.generateImage(value)) {
       return visitor.generateImage(value);
     }

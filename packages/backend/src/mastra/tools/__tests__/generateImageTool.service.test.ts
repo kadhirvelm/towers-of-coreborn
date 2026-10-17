@@ -162,12 +162,14 @@ describe("TowersOfCorebornAgentToolRegistry", () => {
       createPortrait(directory, 96, 128),
     );
     const registry = new TowersOfCorebornAgentToolRegistry(
+      { createTool: () => ({ id: AgentTool.ConsultProductNow }) } as never,
       new GenerateImageToolService({
         requestTextCompletion,
       } as unknown as ModelService),
     );
 
     enum SampleAgentTool {
+      // biome-ignore lint/style/useLiteralEnumMembers: value is the shared AgentTool id
       GenerateImage = AgentTool.GenerateImage,
     }
 
@@ -195,6 +197,34 @@ describe("TowersOfCorebornAgentToolRegistry", () => {
     expect(result.model).toBe(GENERATE_IMAGE_MODELS.gemini);
     expect(result.provider).toBe("gemini");
     expect(requestTextCompletion).toHaveBeenCalledTimes(1);
+  });
+
+  test("rejects an enum member that is not a catalog tool", () => {
+    const registry = new TowersOfCorebornAgentToolRegistry(
+      { createTool: () => ({ id: AgentTool.ConsultProductNow }) } as never,
+      new GenerateImageToolService({
+        requestTextCompletion: mock(async () => ""),
+      } as unknown as ModelService),
+    );
+
+    enum SampleAgentTool {
+      // biome-ignore lint/style/useLiteralEnumMembers: value is the shared AgentTool id
+      GenerateImage = AgentTool.GenerateImage,
+      Missing = "not-a-tool",
+    }
+
+    let thrown: unknown;
+    try {
+      registry.buildTools(SampleAgentTool);
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(thrown instanceof Error).toBe(true);
+    if (!(thrown instanceof Error)) {
+      return;
+    }
+    expect(thrown.message).toBe("No tool is registered for Missing.");
   });
 });
 

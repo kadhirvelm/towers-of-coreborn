@@ -68,6 +68,7 @@ export class OpenAIService {
    * @returns The model response, including any function calls
    */
   public createResponse(params: {
+    abortSignal?: AbortSignal;
     input: OpenAI.Responses.ResponseCreateParams["input"];
     instructions?: string;
     model: OpenAI.Responses.ResponseCreateParams["model"];
@@ -75,19 +76,22 @@ export class OpenAIService {
     toolChoice?: OpenAI.Responses.ResponseCreateParams["tool_choice"];
     tools?: OpenAI.Responses.Tool[];
   }): Promise<OpenAI.Responses.Response> {
-    return this.requireClient().responses.create({
-      input: params.input,
-      instructions: params.instructions,
-      model: params.model,
-      stream: false,
-      ...(params.previousResponseId === undefined
-        ? {}
-        : { previous_response_id: params.previousResponseId }),
-      ...(params.toolChoice === undefined
-        ? {}
-        : { tool_choice: params.toolChoice }),
-      ...(params.tools === undefined ? {} : { tools: params.tools }),
-    });
+    return this.requireClient().responses.create(
+      {
+        input: params.input,
+        instructions: params.instructions,
+        model: params.model,
+        stream: false,
+        ...(params.previousResponseId === undefined
+          ? {}
+          : { previous_response_id: params.previousResponseId }),
+        ...(params.toolChoice === undefined
+          ? {}
+          : { tool_choice: params.toolChoice }),
+        ...(params.tools === undefined ? {} : { tools: params.tools }),
+      },
+      { signal: params.abortSignal },
+    );
   }
 
   /**
@@ -97,6 +101,7 @@ export class OpenAIService {
    * @returns Absolute path of the staged PNG
    */
   private async requestImage(params: {
+    abortSignal?: AbortSignal;
     imageConfig?: ModelRequest<"open-ai">["imageConfig"];
     inputFiles?: InputFile[];
     instructions?: string;
@@ -107,25 +112,32 @@ export class OpenAIService {
     const size = resolveOpenAIImageSize(params.imageConfig);
     const referenceImages = imageInputs(params.inputFiles);
     const client = this.requireClient();
+    const requestOptions = { signal: params.abortSignal };
     const response =
       referenceImages.length === 0
-        ? await client.images.generate({
-            background: "opaque",
-            model: params.model,
-            output_format: "png",
-            prompt,
-            quality: OPENAI_IMAGE_QUALITY,
-            size,
-          })
-        : await client.images.edit({
-            background: "opaque",
-            image: await Promise.all(referenceImages),
-            model: params.model,
-            output_format: "png",
-            prompt,
-            quality: OPENAI_IMAGE_QUALITY,
-            size,
-          });
+        ? await client.images.generate(
+            {
+              background: "opaque",
+              model: params.model,
+              output_format: "png",
+              prompt,
+              quality: OPENAI_IMAGE_QUALITY,
+              size,
+            },
+            requestOptions,
+          )
+        : await client.images.edit(
+            {
+              background: "opaque",
+              image: await Promise.all(referenceImages),
+              model: params.model,
+              output_format: "png",
+              prompt,
+              quality: OPENAI_IMAGE_QUALITY,
+              size,
+            },
+            requestOptions,
+          );
 
     const encoded = response.data?.[0]?.b64_json;
     if (encoded == null || encoded.length === 0) {
@@ -138,6 +150,7 @@ export class OpenAIService {
   }
 
   public async requestTextCompletion<Request extends ModelRequest<"open-ai">>({
+    abortSignal,
     prompt,
     inputFiles,
     instructions,
@@ -163,6 +176,7 @@ export class OpenAIService {
 
     if (schema === "image") {
       return this.requestImage({
+        abortSignal,
         imageConfig,
         inputFiles,
         instructions,
@@ -172,15 +186,18 @@ export class OpenAIService {
     }
 
     const resolvedModel = model ?? "gpt-5-mini";
-    const response = await this.requireClient().responses.create({
-      input: this.assembleInput(prompt, inputFiles),
-      instructions: instructions,
-      max_output_tokens: maxTokens,
-      model: resolvedModel,
-      tools: this.getToolsWithWebSearch(resolvedModel, tools),
-      ...(typeof temperature !== "undefined" ? { temperature } : {}),
-      ...this.getResponseFormatText(schema),
-    });
+    const response = await this.requireClient().responses.create(
+      {
+        input: this.assembleInput(prompt, inputFiles),
+        instructions: instructions,
+        max_output_tokens: maxTokens,
+        model: resolvedModel,
+        tools: this.getToolsWithWebSearch(resolvedModel, tools),
+        ...(typeof temperature !== "undefined" ? { temperature } : {}),
+        ...this.getResponseFormatText(schema),
+      },
+      { signal: abortSignal },
+    );
 
     if (schema !== "string") {
       return JSON.parse(response.output_text);
@@ -193,6 +210,7 @@ export class OpenAIService {
     Request extends ModelRequest<"open-ai">,
   >(
     {
+      abortSignal,
       prompt,
       inputFiles,
       instructions,
@@ -221,6 +239,7 @@ export class OpenAIService {
     if (schema === "image") {
       onEvent({ type: "loading" });
       const filePath = await this.requestImage({
+        abortSignal,
         imageConfig,
         inputFiles,
         instructions,
@@ -232,16 +251,19 @@ export class OpenAIService {
     }
 
     const resolvedModel = model ?? "gpt-5-mini";
-    const response = await this.requireClient().responses.create({
-      input: this.assembleInput(prompt, inputFiles),
-      instructions: instructions,
-      max_output_tokens: maxTokens,
-      model: resolvedModel,
-      tools: this.getToolsWithWebSearch(resolvedModel, tools),
-      ...(typeof temperature !== "undefined" ? { temperature } : {}),
-      stream: true,
-      ...this.getResponseFormatText(schema),
-    });
+    const response = await this.requireClient().responses.create(
+      {
+        input: this.assembleInput(prompt, inputFiles),
+        instructions: instructions,
+        max_output_tokens: maxTokens,
+        model: resolvedModel,
+        tools: this.getToolsWithWebSearch(resolvedModel, tools),
+        ...(typeof temperature !== "undefined" ? { temperature } : {}),
+        stream: true,
+        ...this.getResponseFormatText(schema),
+      },
+      { signal: abortSignal },
+    );
 
     let finalText = "";
 

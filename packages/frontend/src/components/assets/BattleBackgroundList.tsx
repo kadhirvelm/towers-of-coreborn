@@ -12,6 +12,7 @@ interface BattleBackgroundListProps {
   error: string | null;
   isLoading: boolean;
   onDismissJob: (id: string) => void;
+  onStopJob: (id: string) => void;
   pendingJobs: PendingJob[];
   result: ListBattleBackgroundsResponse | null;
 }
@@ -24,6 +25,7 @@ export function BattleBackgroundList({
   error,
   isLoading,
   onDismissJob,
+  onStopJob,
   pendingJobs,
   result,
 }: BattleBackgroundListProps) {
@@ -63,6 +65,7 @@ export function BattleBackgroundList({
               job={job}
               key={job.id}
               onDismiss={() => onDismissJob(job.id)}
+              onStop={() => onStopJob(job.id)}
             />
           ))}
           {backgrounds.map((background) => (

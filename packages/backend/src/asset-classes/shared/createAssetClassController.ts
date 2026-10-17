@@ -17,11 +17,12 @@ import { TimeoutInterceptor } from "src/library/timeout/timeout.interceptor";
 export const ASSET_CLASS_GENERATION_TIMEOUT_MS = 15 * 60 * 1000;
 
 /**
- * The two operations every asset-class service exposes.
+ * The operations every asset-class service exposes.
  */
 export interface AssetClassOperations<
   Api extends AssetClassServiceApi<unknown, unknown>,
 > {
+  cancel(payload: Api["cancel"]["payload"]): Promise<Api["cancel"]["response"]>;
   generate(
     payload: Api["generate"]["payload"],
   ): Promise<Api["generate"]["response"]>;
@@ -29,8 +30,9 @@ export interface AssetClassOperations<
 }
 
 /**
- * Builds the `POST /{controller}/generate` and `POST /{controller}/list` controller
- * for an asset class. Generation gets {@link ASSET_CLASS_GENERATION_TIMEOUT_MS}.
+ * Builds the `POST /{controller}/generate`, `POST /{controller}/cancel`, and
+ * `POST /{controller}/list` controller for an asset class. Generation gets
+ * {@link ASSET_CLASS_GENERATION_TIMEOUT_MS}.
  * @param definition - Service definition from `@towers-of-coreborn/api`
  * @param service - Nest provider that implements generate and list
  * @returns A controller class Nest can register
@@ -50,6 +52,11 @@ export function createAssetClassController<
       @Inject(service)
       private readonly assetClassService: AssetClassOperations<Api>,
     ) {}
+
+    @getDecorator(definition.endpoints.cancel)
+    public cancel(@Body() payload: Api["cancel"]["payload"]) {
+      return this.assetClassService.cancel(payload);
+    }
 
     @Timeout(ASSET_CLASS_GENERATION_TIMEOUT_MS)
     @getDecorator(definition.endpoints.generate)

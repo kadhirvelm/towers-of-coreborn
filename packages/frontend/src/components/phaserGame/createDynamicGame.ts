@@ -11,6 +11,10 @@ export async function createDynamicGame(
 
   const game = new Phaser.Game({
     backgroundColor: "#f3efe4",
+    loader: {
+      crossOrigin: "anonymous",
+      imageLoadType: "HTMLImageElement",
+    },
     parent,
     scale: {
       height: "100%",

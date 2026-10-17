@@ -74,9 +74,12 @@ export class ProductNowMcpService {
     sessionId: string,
     name: string,
     toolArguments?: Record<string, unknown>,
+    abortSignal?: AbortSignal,
   ): Promise<unknown> {
     return this.withConnectedClient(sessionId, async (client) =>
-      client.callTool({ arguments: toolArguments, name }),
+      client.callTool({ arguments: toolArguments, name }, undefined, {
+        signal: abortSignal,
+      }),
     );
   }
 

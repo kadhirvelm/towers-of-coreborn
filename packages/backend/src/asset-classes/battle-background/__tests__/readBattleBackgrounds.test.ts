@@ -3,12 +3,12 @@ import { mkdir, rm, writeFile } from "node:fs/promises";
 import {
   BATTLE_BACKGROUND_FILE_NAME,
   BATTLE_BACKGROUND_MANIFEST_FILE_NAME,
-} from "./battleBackgroundSpec";
-import { BATTLE_BACKGROUND_STORAGE } from "./battleBackgroundStorage";
+} from "../battleBackgroundSpec";
+import { BATTLE_BACKGROUND_STORAGE } from "../battleBackgroundStorage";
 import {
   readBattleBackground,
   readBattleBackgrounds,
-} from "./readBattleBackgrounds";
+} from "../readBattleBackgrounds";
 
 const ASSET_ID = "background-reader-test";
 
