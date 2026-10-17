@@ -1,0 +1,17 @@
+@use "@/styles/variables.scss" as vars;
+
+.connection {
+  position: fixed;
+  right: 20px;
+  top: 20px;
+  z-index: 10;
+}
+
+.error {
+  background: vars.$danger-bg;
+  border: 1px solid vars.$danger-light;
+  border-radius: 6px;
+  color: vars.$danger;
+  max-width: 280px;
+  padding: 6px 8px;
+}

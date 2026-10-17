@@ -1,6 +1,5 @@
 /**
- * Boots an empty Phaser game attached to `parent`. The canvas fills the parent
- * and resizes with it. Scene content belongs in a later scene, not here.
+ * Boots the battle scene on `parent`. The canvas fills the parent and resizes with it.
  * @param parent - Element Phaser will attach the game to
  * @returns Handle to destroy the game instance
  */
@@ -8,15 +7,10 @@ export async function createDynamicGame(
   parent: HTMLElement,
 ): Promise<{ destroy: () => void }> {
   const Phaser = await import("phaser");
-
-  class MainScene extends Phaser.Scene {
-    public constructor() {
-      super({ key: "MainScene" });
-    }
-  }
+  const { createBattleSceneClass } = await import("./battleScene");
 
   const game = new Phaser.Game({
-    backgroundColor: "#ffffff",
+    backgroundColor: "#f3efe4",
     parent,
     scale: {
       height: "100%",
@@ -24,7 +18,7 @@ export async function createDynamicGame(
       parent,
       width: "100%",
     },
-    scene: MainScene,
+    scene: createBattleSceneClass(Phaser),
     type: Phaser.AUTO,
   });
 

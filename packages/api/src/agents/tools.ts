@@ -1,43 +1,67 @@
 /**
- * Tools are read-only operations provided to the agent that allow it to fetch or retrieve useful context from the system.
- * They enable the agent to access documents, attachments, or relevant search information as needed, without modifying any underlying data.
- * By using these tools, the agent augments its information-gathering and reasoning capabilities, facilitating smarter and more aware responses,
- * while ensuring the integrity of the system's data is maintained.
+ * Tools a Mastra agent can call.
  *
- * Asset-class generation tools are not registered here: each asset class owns
- * its tool on the backend (`packages/backend/src/asset-classes/<class>/`).
+ * Add a member to {@link AgentTool}, a matching entry in `AllAgentTools`,
+ * and an implementation in
+ * `packages/backend/src/mastra/shared/towersOfCorebornAgentToolRegistry.ts`.
+ * An agent opts in by declaring its own enum whose values are these members.
  */
 
-import { GenericType, VisitorPattern } from "../genericTypes";
+import { EnumValues, GenericType, VisitorPattern } from "../genericTypes";
 
 export interface AgentBasicTool {
   type: string;
 }
 
-/** Shared agent tools keyed by name. Add an entry here for tools any agent can use. */
-export type AllAgentTools = Record<never, AgentBasicTool>;
+/**
+ * Every tool the registry can give an agent.
+ * The value is the id the model calls.
+ */
+export enum AgentTool {
+  /** Paints one or more images with Gemini or OpenAI. */
+  GenerateImage = "generate-image",
+}
 
 /**
- * When adding a new document action, you'll need to update the following places (all enforced by typescript):
+ * Generates one or more images by calling Gemini or OpenAI.
  */
-export type AgentPerformToolCall = GenericType<AllAgentTools>;
+export interface GenerateImageTool extends AgentBasicTool {
+  type: AgentTool.GenerateImage;
+}
 
-type AvailableTools = {
-  [key in keyof AllAgentTools]: AllAgentTools[key]["type"];
+/** Shared agent tools keyed by name. Add an entry here for tools any agent can use. */
+export type AllAgentTools = {
+  generateImage: GenerateImageTool;
 };
 
 /**
- * The AvailableTools is the type of the tool that the agent can perform.
+ * When adding a new tool, update {@link AgentTool}, `AllAgentTools`, and `AgentTools`.
  */
-export const AvailableTools: AvailableTools = {};
+export type AgentPerformToolCall = GenericType<AllAgentTools>;
 
 /**
- * The ToolId is the type of the tool that the agent is performing.
+ * The id of a tool an agent can call.
  */
-export type ToolId = AgentPerformToolCall["type"];
+export type ToolId = EnumValues<typeof AgentTool>;
 
-/** Convenience visitor pattern for document actions — ensures all new actions are properly handled. */
+/**
+ * Tools to give an agent.
+ * Pass a list of {@link AgentTool} members, or an enum declared on the agent
+ * whose values are those members.
+ */
+export type AgentToolSelection = readonly ToolId[] | Record<string, string>;
+
+/** Visitor for agent tools. Adding a tool requires a branch here. */
 export const AgentTools: VisitorPattern<AllAgentTools> = {
-  typeChecks: {},
-  visit: (value, visitor) => visitor.unknown(value),
+  typeChecks: {
+    generateImage: (value): value is GenerateImageTool =>
+      value.type === AgentTool.GenerateImage,
+  },
+  visit: (value, visitor) => {
+    if (AgentTools.typeChecks.generateImage(value)) {
+      return visitor.generateImage(value);
+    }
+
+    return visitor.unknown(value);
+  },
 };

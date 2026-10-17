@@ -1,11 +1,22 @@
 import type { ServiceDefinition } from "./genericTypes/service";
 import {
+  BattleBackgroundServiceApi,
+  BattleBackgroundServiceDefinition,
   CardCharacterServiceApi,
   CardCharacterServiceDefinition,
+  PlayableCardServiceApi,
+  PlayableCardServiceDefinition,
 } from "./services/assetClasses";
+import {
+  ProductNowMcpServiceApi,
+  ProductNowMcpServiceDefinition,
+} from "./services/productNowMcp";
 
 export type AvailableServices = {
+  battleBackground: BattleBackgroundServiceApi;
   cardCharacter: CardCharacterServiceApi;
+  playableCard: PlayableCardServiceApi;
+  productNowMcp: ProductNowMcpServiceApi;
 };
 
 export type AvailableServicesDefinition = {
@@ -13,5 +24,8 @@ export type AvailableServicesDefinition = {
 };
 
 export const AVAILABLE_SERVICES: AvailableServicesDefinition = {
+  battleBackground: BattleBackgroundServiceDefinition,
   cardCharacter: CardCharacterServiceDefinition,
+  playableCard: PlayableCardServiceDefinition,
+  productNowMcp: ProductNowMcpServiceDefinition,
 };

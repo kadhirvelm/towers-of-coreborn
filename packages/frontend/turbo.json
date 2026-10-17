@@ -7,7 +7,13 @@
       "outputs": [".next/**", "!.next/cache/**"]
     },
     "dev": {
-      "env": ["NODE_ENV", "PUBLIC_URL", "BACKEND_API_URL", "APP_BASE_URL"]
+      "env": [
+        "NODE_ENV",
+        "PUBLIC_URL",
+        "BACKEND_API_URL",
+        "FRONTEND_URL",
+        "APP_BASE_URL"
+      ]
     }
   }
 }

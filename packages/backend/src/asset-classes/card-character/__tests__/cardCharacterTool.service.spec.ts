@@ -1,152 +1,153 @@
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 import { randomUUID } from "node:crypto";
-import { mkdtemp, readdir, rm } from "node:fs/promises";
+import { access, mkdtemp, readdir, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import sharp from "sharp";
-import { ModelService } from "src/model/model.service";
-import { CARD_CHARACTER_IMAGE_CONFIG } from "../cardCharacterSpec";
 import { CARD_CHARACTER_STORAGE } from "../cardCharacterStorage";
-import {
-  type CardCharacterToolOutput,
-  CardCharacterToolService,
-} from "../cardCharacterTool.service";
-
-const characterInput = {
-  identity:
-    "A lanky inventor with round brass goggles, a soot smudge, and a patched brown coat.",
-  levels: [
-    {
-      description: "Empty tool belt and hunched shoulders.",
-      level: 1,
-      title: "Workshop Apprentice",
-    },
-    {
-      description: "A brass gauntlet and one hovering gear.",
-      level: 2,
-      title: "Gearwright",
-    },
-    {
-      description: "Half-deployed clockwork wings and brass plates.",
-      level: 3,
-      title: "Wingwright",
-    },
-    {
-      description: "Fully spread filigree wings and a glowing mainspring.",
-      level: 4,
-      title: "Clockwork Sovereign",
-    },
-  ],
-  sourcePrompt: "a soot-covered inventor who builds clockwork wings",
-  theme: "Brass clockwork, soot, and warm lamplight.",
-};
+import { CardCharacterToolService } from "../cardCharacterTool.service";
+import type { CardCharacterImageSet } from "../readCardCharacterImageSet";
 
 describe("CardCharacterToolService", () => {
-  let tempDirectory: string;
-
-  beforeEach(async () => {
-    tempDirectory = await mkdtemp(join(tmpdir(), "card-character-tool-"));
-  });
+  const savedSetIds: string[] = [];
+  let tempDirectory = "";
 
   afterEach(async () => {
-    await rm(tempDirectory, { force: true, recursive: true });
+    for (const setId of savedSetIds.splice(0)) {
+      await rm(CARD_CHARACTER_STORAGE.filePath(setId), {
+        force: true,
+        recursive: true,
+      });
+    }
+    if (tempDirectory !== "") {
+      await rm(tempDirectory, { force: true, recursive: true });
+      tempDirectory = "";
+    }
   });
 
-  test("saves four portraits and reuses level 1 as the reference", async () => {
-    const calls: Array<Record<string, unknown>> = [];
-    const requestTextCompletion = mock(async (request: unknown) => {
-      calls.push(request as Record<string, unknown>);
-      return createPortrait(tempDirectory);
+  test("saves four portraits and removes the temp files", async () => {
+    tempDirectory = await mkdtemp(join(tmpdir(), "card-character-save-"));
+    const portraits = await portraitSet(tempDirectory, 96, 128);
+    const service = new CardCharacterToolService();
+
+    const { setId } = await service.saveGeneratedPortraits({
+      portraits,
+      sourcePrompt: "a soot-covered inventor who builds clockwork wings",
     });
-    const service = new CardCharacterToolService({
-      requestTextCompletion,
-    } as unknown as ModelService);
-    const before = new Set(await listSetIds());
+    savedSetIds.push(setId);
 
-    const result = (await service
-      .createCardCharacterTool()
-      .execute?.(characterInput, {} as never)) as
-      | CardCharacterToolOutput
-      | undefined;
-
-    if (result === undefined) {
-      throw new Error("expected the card character tool to return a set");
-    }
-
-    expect(result.levels.map((level) => level.level)).toEqual([1, 2, 3, 4]);
-    expect(result.levels.map((level) => level.fileName)).toEqual([
+    const manifest = JSON.parse(
+      await readFile(
+        join(CARD_CHARACTER_STORAGE.filePath(setId), "manifest.json"),
+        "utf8",
+      ),
+    ) as {
+      levels: Array<{ fileName: string; level: number; title: string }>;
+      prompt: string;
+      theme: string;
+    };
+    expect(manifest.prompt).toBe(
+      "a soot-covered inventor who builds clockwork wings",
+    );
+    expect(manifest.theme).toBe("Brass clockwork and soot.");
+    expect(manifest.levels.map((level) => level.level)).toEqual([1, 2, 3, 4]);
+    expect(manifest.levels.map((level) => level.fileName)).toEqual([
       "level-1.png",
       "level-2.png",
       "level-3.png",
       "level-4.png",
     ]);
-    expect(result.levels[0]?.publicPath).toBe(
-      `/static/card-characters/${result.setId}/level-1.png`,
-    );
-    expect(requestTextCompletion).toHaveBeenCalledTimes(4);
-
-    const levelOneRequest = calls[0];
-    expect(levelOneRequest?.imageConfig).toEqual(CARD_CHARACTER_IMAGE_CONFIG);
-    expect(levelOneRequest?.schema).toBe("image");
-    expect(levelOneRequest?.inputFiles).toBeUndefined();
-    expect(String(levelOneRequest?.prompt)).toContain("facing the viewer");
-
-    for (const request of calls.slice(1)) {
-      const inputFiles = request.inputFiles as unknown[] | undefined;
-      expect(inputFiles).toHaveLength(1);
-      expect(String(request.prompt)).toContain(
-        "reference image of this exact character at level 1",
-      );
-    }
-
-    await rm(result.directoryPath, { force: true, recursive: true });
-    const after = await listSetIds();
-    for (const name of after) {
-      expect(before.has(name)).toBe(true);
-    }
+    expect(manifest.levels[0]?.title).toBe("Workshop Apprentice");
+    expect(await fileExists(portraits.images[0].filePath)).toBe(false);
   });
 
-  test("removes the set directory when portrait generation fails", async () => {
-    const requestTextCompletion = mock(async () => {
-      throw new Error("model down");
-    });
-    const service = new CardCharacterToolService({
-      requestTextCompletion,
-    } as unknown as ModelService);
+  test("removes the set directory when a portrait is unusable", async () => {
+    tempDirectory = await mkdtemp(join(tmpdir(), "card-character-fail-"));
+    const portraits = await portraitSet(tempDirectory, 8, 8);
+    const service = new CardCharacterToolService();
     const before = new Set(await listSetIds());
 
-    const errorOrResolved = await service
-      .createCardCharacterTool()
-      .execute?.(characterInput, {} as never)
+    const error = await service
+      .saveGeneratedPortraits({
+        portraits,
+        sourcePrompt: "a knight",
+      })
       .then(
         () => undefined,
-        (caught) => caught as unknown,
+        (caught: unknown) => caught,
       );
 
-    if (errorOrResolved === undefined) {
-      throw new Error("expected card character generation to fail");
+    if (!(error instanceof Error)) {
+      throw new Error("expected saving to fail");
     }
-    const message =
-      errorOrResolved instanceof Error
-        ? errorOrResolved.message
-        : String(errorOrResolved);
-    expect(message).toContain("level 1");
-    expect(requestTextCompletion).toHaveBeenCalledTimes(2);
-
+    expect(error.message).toContain("below 64px");
     const after = await listSetIds();
     for (const name of after) {
       expect(before.has(name)).toBe(true);
     }
+    expect(await fileExists(portraits.images[0].filePath)).toBe(false);
   });
 });
+
+/**
+ * @param directory - Temp directory for the source portraits
+ * @param width - Portrait width
+ * @param height - Portrait height
+ * @returns A generate-image result the saver can store
+ */
+async function portraitSet(
+  directory: string,
+  width: number,
+  height: number,
+): Promise<CardCharacterImageSet> {
+  const titles = [
+    "Workshop Apprentice",
+    "Gearwright",
+    "Wingwright",
+    "Clockwork Sovereign",
+  ];
+  const images: Array<{ filePath: string; name: string; notes: string }> = [];
+  for (const [index, title] of titles.entries()) {
+    const filePath = join(directory, `${randomUUID()}.png`);
+    await sharp({
+      create: {
+        background: { alpha: 1, b: 80, g: 40, r: 20 },
+        channels: 4,
+        height,
+        width,
+      },
+    })
+      .png()
+      .toFile(filePath);
+    images.push({
+      filePath,
+      name: title ?? "Stage",
+      notes: `Stage ${index + 1} changes gear and stance.`,
+    });
+  }
+
+  const [first, second, third, fourth] = images;
+  if (
+    first === undefined ||
+    second === undefined ||
+    third === undefined ||
+    fourth === undefined
+  ) {
+    throw new Error("expected four portraits");
+  }
+
+  return {
+    images: [first, second, third, fourth],
+    theme: "Brass clockwork and soot.",
+  };
+}
 
 /**
  * @returns Directory names currently under the card-character static root
  */
 async function listSetIds(): Promise<string[]> {
-  const root = CARD_CHARACTER_STORAGE.rootPath();
   try {
-    return await readdir(root);
+    return await readdir(CARD_CHARACTER_STORAGE.rootPath());
   } catch (error) {
     const code = (error as NodeJS.ErrnoException).code;
     if (code === "ENOENT") {
@@ -157,20 +158,14 @@ async function listSetIds(): Promise<string[]> {
 }
 
 /**
- * @param directory - Temp directory for the fake model output
- * @returns Path to a small PNG
+ * @param filePath - Path that may have been deleted
+ * @returns Whether the file is still on disk
  */
-async function createPortrait(directory: string) {
-  const filePath = join(directory, `${randomUUID()}.png`);
-  await sharp({
-    create: {
-      background: { alpha: 1, b: 80, g: 40, r: 20 },
-      channels: 4,
-      height: 128,
-      width: 96,
-    },
-  })
-    .png()
-    .toFile(filePath);
-  return filePath;
+async function fileExists(filePath: string): Promise<boolean> {
+  try {
+    await access(filePath);
+    return true;
+  } catch {
+    return false;
+  }
 }

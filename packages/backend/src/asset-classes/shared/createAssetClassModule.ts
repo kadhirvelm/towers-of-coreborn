@@ -5,7 +5,7 @@ import { ModelModule } from "src/model/model.module";
 /**
  * Options for an asset-class Nest module.
  * @property controller - Controller from {@link createAssetClassController}
- * @property providers - The class service, its agent, and its tool service
+ * @property providers - The class service and any class-local providers. Agents are injected from `MastraModule`.
  * @property extraImports - Modules beyond `ModelModule` and `MastraModule`
  */
 export interface AssetClassModuleOptions {

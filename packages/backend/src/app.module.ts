@@ -5,6 +5,7 @@ import { GameRoomModule } from "./game-room/game-room.module";
 import { RedisModule } from "./infra/redis/redis.module";
 import { AllExceptionsFilter } from "./library/AllExceptions.filter";
 import { TowersOfCorebornLoggerModule } from "./logger/logger.module";
+import { ProductNowMcpModule } from "./product-now-mcp/product-now-mcp.module";
 
 export const SharedModules = [
   ConfigurationModule,
@@ -13,7 +14,12 @@ export const SharedModules = [
 ];
 
 @Module({
-  imports: [GameRoomModule, AssetClassesModule, ...SharedModules],
+  imports: [
+    GameRoomModule,
+    AssetClassesModule,
+    ProductNowMcpModule,
+    ...SharedModules,
+  ],
   providers: [AllExceptionsFilter],
 })
 export class AppModule {}

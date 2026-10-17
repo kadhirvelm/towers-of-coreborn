@@ -5,8 +5,8 @@ import {
   InternalServerErrorException,
 } from "@nestjs/common";
 import type { ConfigurationService } from "src/configuration/configuration.service";
+import type { CardCharacterAgent } from "src/mastra/agents/card-character/cardCharacterAgent";
 import { CardCharacterService } from "../card-character.service";
-import type { CardCharacterGenerationAgentService } from "../cardCharacterAgent.service";
 import { CARD_CHARACTER_STORAGE } from "../cardCharacterStorage";
 
 const SET_ID = "service-spec-set";
@@ -79,14 +79,14 @@ describe("CardCharacterService", () => {
 });
 
 /**
- * @param generate - Stand-in for the coordinator agent
+ * @param query - Stand-in for the card-character agent
  * @returns A service pointed at the real card-character folder
  */
 function createService(
-  generate: CardCharacterGenerationAgentService["generate"],
+  query: CardCharacterAgent["query"],
 ): CardCharacterService {
   return new CardCharacterService(
-    { generate } as unknown as CardCharacterGenerationAgentService,
+    { query } as unknown as CardCharacterAgent,
     {
       get: () => "https://backend.test",
     } as unknown as ConfigurationService,

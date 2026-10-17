@@ -42,6 +42,15 @@ that package directory.
 - Asset classes: `packages/backend/src/asset-classes/`
 - AI providers and orchestration: `packages/backend/src/model/` and
   `packages/backend/src/mastra/`
+- Shared Mastra tools: declare them on the `AgentTool` enum in
+  `packages/api/src/agents/tools.ts` and register them in
+  `packages/backend/src/mastra/shared/towersOfCorebornAgentToolRegistry.ts`.
+  An agent opts in with its own enum whose values are `AgentTool` members.
+- Agents: `packages/backend/src/mastra/agents/<name>/`. Each agent is a Nest
+  service with a `query` method. Asset classes call `query`; they do not
+  construct Mastra agents themselves. `battle-background` paints battle rooms,
+  `card-character` paints four-level portraits, and `card-generator` writes one
+  lore-backed playable card.
 
 Use Nest dependency injection. Read environment values through
 `ConfigurationService` outside startup/configuration code. Use the shared
@@ -58,6 +67,13 @@ add `"use client"` only for hooks, event handlers, or browser APIs.
 
 Anything shared between frontend and backend belongs in `packages/api/src/`
 and is imported from `@towers-of-coreborn/api`.
+
+### External MCP OAuth
+
+ProductNow MCP access lives in `packages/backend/src/product-now-mcp/`. The
+backend serves its OAuth Client ID Metadata Document at
+`/.well-known/oauth-client-metadata/towers-of-coreborn.json` and stores
+per-browser OAuth state encrypted in Redis. Keep MCP tokens server-side.
 
 ### Database
 
@@ -96,6 +112,11 @@ Service callers return `ServiceError` values rather than throwing. Check
   clients), credentials, or runtime-generated assets.
 
 ## GitHub Actions
+
+`.github/workflows/ci.yml` runs on pull requests and pushes to `main`. It
+reports three checks: lint (`bun run lint`), type (`bun run check`), and
+tests (`bun run test`). The test job starts Postgres with the credentials in
+`toc-cli/src/constants/database.ts`.
 
 - Bind free-text expressions to environment variables before using them in
   shell scripts; never interpolate them directly into `run`.

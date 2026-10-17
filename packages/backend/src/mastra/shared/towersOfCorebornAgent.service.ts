@@ -5,7 +5,7 @@ import {
   InternalServerErrorException,
   Logger,
 } from "@nestjs/common";
-import { ToolId } from "@towers-of-coreborn/api";
+import { type AgentToolSelection } from "@towers-of-coreborn/api";
 import { ConfigurationService } from "src/configuration/configuration.service";
 import { z } from "zod";
 import { formatToolErrorMessage } from "./formatToolErrorMessage";
@@ -34,7 +34,7 @@ export type UnresolvedTowersOfCorebornAgentConfig = Omit<
 /**
  * Input parameters for a non-streaming TowersOfCorebornAgent generate call.
  * @property agentConfig - Configuration settings for the TowersOfCorebornAgent instance.
- * @property tools - Tool IDs to make available to the agent (empty array for no tools).
+ * @property tools - Tool ids or an agent tool enum. Omit or pass an empty list for no tools.
  * @property prompt - The user input or system prompt for the agent to process.
  */
 export interface TowersOfCorebornAgentGenerateInput {
@@ -43,9 +43,9 @@ export interface TowersOfCorebornAgentGenerateInput {
    */
   agentConfig: UnresolvedTowersOfCorebornAgentConfig;
   /**
-   * Tool IDs to make available to the agent (empty array for no tools).
+   * Tool ids, or an enum of them declared on the agent. Omit or pass an empty list for no tools.
    */
-  tools?: ToolId[];
+  tools?: AgentToolSelection;
   /**
    * The user input or system prompt for the agent to process.
    */
@@ -79,9 +79,9 @@ export interface TowersOfCorebornAgentChatInput {
    */
   agentConfig: UnresolvedTowersOfCorebornAgentConfig;
   /**
-   * Tool IDs to make available to the agent (empty array for no tools).
+   * Tool ids, or an enum of them declared on the agent.
    */
-  tools: ToolId[];
+  tools: AgentToolSelection;
   /**
    * The user input or system prompt for the agent to process.
    */
@@ -163,7 +163,7 @@ const DEFAULT_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes
  * Coordinator model for asset-class agents. A class can pass a different model
  * to {@link TowersOfCorebornAgentService.runGenerationCoordinator}.
  */
-export const ASSET_CLASS_COORDINATOR_MODEL = "anthropic/claude-sonnet-4-5";
+export const ASSET_CLASS_COORDINATOR_MODEL = "openai/gpt-6-astra";
 
 /** How many steps a generation coordinator gets: one tool call, then a short reply. */
 const GENERATION_COORDINATOR_MAX_STEPS = 2;

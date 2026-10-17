@@ -1,0 +1,176 @@
+import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
+import type { OAuthDiscoveryState } from "@modelcontextprotocol/sdk/client/auth.js";
+import type {
+  OAuthClientInformationMixed,
+  OAuthTokens,
+} from "@modelcontextprotocol/sdk/shared/auth.js";
+import { Injectable, Logger } from "@nestjs/common";
+import { ConfigurationService } from "../configuration/configuration.service";
+import { RedisService } from "../infra/redis/redis.service";
+
+const SESSION_TTL_SECONDS = 60 * 60 * 24 * 30;
+const OAUTH_SESSION_PREFIX = "productnow:oauth:";
+
+/** OAuth state persisted for one anonymous browser session. */
+export interface ProductNowOAuthSession {
+  clientInformation?: OAuthClientInformationMixed;
+  codeVerifier?: string;
+  discoveryState?: OAuthDiscoveryState;
+  oauthState?: string;
+  tokens?: OAuthTokens;
+}
+
+/**
+ * Persists encrypted ProductNow OAuth credentials in Redis.
+ */
+@Injectable()
+export class ProductNowOAuthSessionStore {
+  private readonly encryptionKey: Buffer;
+  private readonly logger = new Logger(ProductNowOAuthSessionStore.name);
+
+  public constructor(
+    configurationService: ConfigurationService,
+    private readonly redisService: RedisService,
+  ) {
+    const configuredKey = configurationService.get("MCP_OAUTH_ENCRYPTION_KEY");
+    const isProduction = configurationService.get("NODE_ENV") === "production";
+
+    if (configuredKey) {
+      this.encryptionKey = this.decodeEncryptionKey(configuredKey);
+      return;
+    }
+
+    if (isProduction) {
+      throw new Error(
+        "MCP_OAUTH_ENCRYPTION_KEY must be set in production (32 random bytes encoded as base64)",
+      );
+    }
+
+    this.logger.warn(
+      "MCP_OAUTH_ENCRYPTION_KEY is not set; ProductNow OAuth sessions will be invalid after this development process restarts",
+    );
+    this.encryptionKey = randomBytes(32);
+  }
+
+  /**
+   * Deletes one browser's ProductNow OAuth session.
+   * @param sessionId - Opaque browser session identifier
+   */
+  public async delete(sessionId: string): Promise<void> {
+    await this.redisService.del(this.getSessionKey(sessionId));
+  }
+
+  /**
+   * Reads and decrypts one browser's ProductNow OAuth session.
+   * @param sessionId - Opaque browser session identifier
+   * @returns Stored session, or an empty session when none exists
+   */
+  public async get(sessionId: string): Promise<ProductNowOAuthSession> {
+    const encryptedSession = await this.redisService.get(
+      this.getSessionKey(sessionId),
+    );
+
+    if (!encryptedSession) {
+      return {};
+    }
+
+    return JSON.parse(this.decrypt(encryptedSession)) as ProductNowOAuthSession;
+  }
+
+  /**
+   * Updates one browser's OAuth session and refreshes its expiry.
+   * @param sessionId - Opaque browser session identifier
+   * @param updateSession - Function that returns the next session value
+   * @returns Updated session
+   */
+  public async update(
+    sessionId: string,
+    updateSession: (session: ProductNowOAuthSession) => ProductNowOAuthSession,
+  ): Promise<ProductNowOAuthSession> {
+    const nextSession = updateSession(await this.get(sessionId));
+    await this.redisService.set(
+      this.getSessionKey(sessionId),
+      this.encrypt(JSON.stringify(nextSession)),
+      SESSION_TTL_SECONDS,
+    );
+    return nextSession;
+  }
+
+  /**
+   * Decodes and validates the configured AES-256 key.
+   * @param encodedKey - Base64-encoded key material
+   * @returns Exactly 32 bytes of key material
+   */
+  private decodeEncryptionKey(encodedKey: string): Buffer {
+    const key = Buffer.from(encodedKey, "base64");
+    if (key.length !== 32) {
+      throw new Error(
+        "MCP_OAUTH_ENCRYPTION_KEY must contain exactly 32 random bytes encoded as base64",
+      );
+    }
+    return key;
+  }
+
+  /**
+   * Decrypts an authenticated session payload.
+   * @param encryptedValue - Versioned AES-GCM payload
+   * @returns Plaintext JSON
+   */
+  private decrypt(encryptedValue: string): string {
+    const [version, initializationVector, authenticationTag, ciphertext] =
+      encryptedValue.split(".");
+    if (
+      version !== "v1" ||
+      !initializationVector ||
+      !authenticationTag ||
+      !ciphertext
+    ) {
+      throw new Error("Invalid encrypted ProductNow OAuth session");
+    }
+
+    const decipher = createDecipheriv(
+      "aes-256-gcm",
+      this.encryptionKey,
+      Buffer.from(initializationVector, "base64url"),
+    );
+    decipher.setAuthTag(Buffer.from(authenticationTag, "base64url"));
+    return Buffer.concat([
+      decipher.update(Buffer.from(ciphertext, "base64url")),
+      decipher.final(),
+    ]).toString("utf8");
+  }
+
+  /**
+   * Encrypts and authenticates a session payload.
+   * @param plaintext - Session JSON
+   * @returns Versioned AES-GCM payload
+   */
+  private encrypt(plaintext: string): string {
+    const initializationVector = randomBytes(12);
+    const cipher = createCipheriv(
+      "aes-256-gcm",
+      this.encryptionKey,
+      initializationVector,
+    );
+    const ciphertext = Buffer.concat([
+      cipher.update(plaintext, "utf8"),
+      cipher.final(),
+    ]);
+
+    return [
+      "v1",
+      initializationVector.toString("base64url"),
+      cipher.getAuthTag().toString("base64url"),
+      ciphertext.toString("base64url"),
+    ].join(".");
+  }
+
+  /**
+   * Builds the Redis value key for a browser session.
+   * @param sessionId - Opaque browser session identifier
+   * @returns Redis session key
+   */
+  private getSessionKey(sessionId: string): string {
+    return `${OAUTH_SESSION_PREFIX}${sessionId}`;
+  }
+}

@@ -1,8 +1,8 @@
 import { Injectable, InternalServerErrorException } from "@nestjs/common";
 import { CardCharacterServiceApi } from "@towers-of-coreborn/api";
 import { ConfigurationService } from "src/configuration/configuration.service";
+import { CardCharacterAgent } from "src/mastra/agents/card-character/cardCharacterAgent";
 import { requireGenerationPrompt } from "../shared/requireGenerationPrompt";
-import { CardCharacterGenerationAgentService } from "./cardCharacterAgent.service";
 import { CARD_CHARACTER_STORAGE } from "./cardCharacterStorage";
 import {
   readCardCharacterSet,
@@ -16,7 +16,7 @@ import {
 @Injectable()
 export class CardCharacterService {
   public constructor(
-    private readonly cardCharacterAgent: CardCharacterGenerationAgentService,
+    private readonly cardCharacterAgent: CardCharacterAgent,
     private readonly configurationService: ConfigurationService,
   ) {}
 
@@ -34,7 +34,7 @@ export class CardCharacterService {
       payload.prompt,
       "Describe the character to generate.",
     );
-    const { setId } = await this.cardCharacterAgent.generate({ prompt });
+    const { setId } = await this.cardCharacterAgent.query({ prompt });
     const set = await readCardCharacterSet(
       CARD_CHARACTER_STORAGE.rootPath(),
       setId,
