@@ -1,0 +1,49 @@
+data_dir: /var/lib/vector
+
+sources:
+  compose_logs:
+    type: docker_logs
+    auto_partial_merge: true
+    exclude_containers:
+      - openobserve
+    include_labels:
+      - dev.towersofcoreborn.logs=true
+
+transforms:
+  # OpenObserve stores one flat JSON object per record.
+  flatten_logs:
+    type: remap
+    inputs:
+      - compose_logs
+    source: |
+      . = {
+        "container_name": to_string(.container_name) ?? "unknown",
+        "image": to_string(.image) ?? "",
+        "message": to_string(.message) ?? "",
+        "stream": to_string(.stream) ?? "",
+        "timestamp": to_unix_timestamp(.timestamp, unit: "microseconds") ?? to_unix_timestamp(now(), unit: "microseconds")
+      }
+
+sinks:
+  openobserve:
+    type: http
+    inputs:
+      - flatten_logs
+    uri: http://openobserve:5080/api/default/docker/_json
+    method: post
+    auth:
+      strategy: basic
+      user: "${OPENOBSERVE_ROOT_USER_EMAIL}"
+      password: "${OPENOBSERVE_ROOT_USER_PASSWORD}"
+    compression: none
+    encoding:
+      codec: json
+    batch:
+      max_events: 1
+      timeout_secs: 1
+    request:
+      headers:
+        Content-Type: application/json
+    healthcheck:
+      enabled: true
+      uri: http://openobserve:5080/healthz

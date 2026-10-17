@@ -1,0 +1,369 @@
+@use "@/styles/variables.scss" as vars;
+
+// ── Blueprint palette ──────────────────────────────────────────────────────
+$blueprint-base: #024;
+$blueprint-line-major: rgb(80 160 255 / 18%);
+$blueprint-line-minor: rgb(80 160 255 / 7%);
+$blueprint-muted: rgb(120 170 230 / 60%);
+$blueprint-border: rgb(80 160 255 / 22%);
+
+// ── Blueprint grid background ──────────────────────────────────────────────
+.pageWrapper {
+  background-color: $blueprint-base;
+  background-image:
+    linear-gradient($blueprint-line-major 1px, transparent 1px),
+    linear-gradient(90deg, $blueprint-line-major 1px, transparent 1px),
+    linear-gradient($blueprint-line-minor 1px, transparent 1px),
+    linear-gradient(90deg, $blueprint-line-minor 1px, transparent 1px);
+  background-size: 80px 80px, 80px 80px, 20px 20px, 20px 20px;
+  flex-direction: column;
+  gap: 36px;
+  min-height: 100dvh;
+  padding: 32px;
+  width: 100%;
+}
+
+// ── Top bar ────────────────────────────────────────────────────────────────
+.topBar {
+  align-items: flex-start;
+  justify-content: space-between;
+  width: 100%;
+}
+
+.titleGroup {
+  flex-direction: column;
+  gap: 4px;
+}
+
+.pageTitle {
+  color: vars.$white;
+  font-size: 26px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  text-shadow: 0 0 24px rgb(80 160 255 / 50%);
+}
+
+.pageSubtitle {
+  color: $blueprint-muted;
+  font-family: monospace;
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+// ── Section ────────────────────────────────────────────────────────────────
+.sectionHeader {
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 4px;
+}
+
+.sectionTitle {
+  color: vars.$white;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.assetCount {
+  background: rgb(80 160 255 / 20%);
+  border: 1px solid $blueprint-border;
+  border-radius: 10px;
+  color: rgb(160 210 255 / 90%);
+  font-size: 11px;
+  font-weight: 600;
+  padding: 1px 8px;
+}
+
+// ── Empty / status states ──────────────────────────────────────────────────
+.emptyState {
+  align-items: center;
+  border: 1px dashed $blueprint-border;
+  border-radius: 12px;
+  color: $blueprint-muted;
+  flex-direction: column;
+  font-size: 14px;
+  gap: 6px;
+  padding: 56px 24px;
+}
+
+.emptyStateHint {
+  color: rgb(100 150 210 / 50%);
+  font-family: monospace;
+  font-size: 11px;
+}
+
+.loadingText {
+  color: rgb(160 210 255 / 90%);
+  font-family: monospace;
+  font-size: 13px;
+}
+
+.errorText {
+  color: vars.$red-light;
+  font-size: 13px;
+}
+
+// ── Asset list loading spinner ─────────────────────────────────────────────
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.loadingSpinner {
+  animation: spin 0.9s linear infinite;
+  border: 2px solid rgb(80 160 255 / 25%);
+  border-radius: 50%;
+  border-top-color: rgb(100 180 255 / 90%);
+  flex-shrink: 0;
+  height: 14px;
+  width: 14px;
+}
+
+// ── Pending generation cards ───────────────────────────────────────────────
+@keyframes pending-pulse {
+  0%, 100% {
+    border-color: rgb(80 160 255 / 40%);
+    box-shadow: none;
+  }
+
+  50% {
+    border-color: rgb(80 160 255 / 90%);
+    box-shadow: 0 0 18px 0 rgb(80 160 255 / 22%);
+  }
+}
+
+.pendingCard {
+  align-items: center;
+  animation: pending-pulse 2s ease-in-out infinite;
+  background: rgb(0 18 50 / 88%);
+  border: 1px solid rgb(80 160 255 / 45%);
+  border-radius: 12px;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 200px;
+  padding: 20px 14px 16px;
+  width: 100%;
+}
+
+.pendingCard.pendingCardFailed {
+  animation: none;
+  border-color: rgb(255 80 80 / 55%);
+}
+
+.pendingSpinner {
+  animation: spin 1s linear infinite;
+  border: 2px solid rgb(80 160 255 / 20%);
+  border-radius: 50%;
+  border-top-color: rgb(100 180 255 / 90%);
+  flex-shrink: 0;
+  height: 28px;
+  margin-top: 16px;
+  width: 28px;
+}
+
+.pendingStatusLabel {
+  color: rgb(100 180 255 / 90%);
+  font-family: monospace;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+
+  .pendingCardFailed & {
+    color: rgb(255 110 110 / 90%);
+  }
+}
+
+.pendingPrompt {
+  -webkit-box-orient: vertical;
+  color: rgb(140 190 255 / 55%);
+  display: -webkit-box;
+  font-family: monospace;
+  font-size: 10px;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  overflow: hidden;
+  text-align: center;
+
+  .pendingCardFailed & {
+    color: rgb(200 150 150 / 60%);
+  }
+}
+
+.pendingErrorMsg {
+  color: rgb(255 130 130 / 85%);
+  font-size: 11px;
+  line-height: 1.4;
+  text-align: center;
+}
+
+.pendingDismiss {
+  background: transparent;
+  border: 1px solid rgb(255 80 80 / 35%);
+  border-radius: 6px;
+  color: rgb(255 130 130 / 80%);
+  cursor: pointer;
+  font-size: 11px;
+  margin-top: auto;
+  padding: 5px 14px;
+  transition: border-color 0.15s ease, color 0.15s ease;
+
+  &:hover {
+    border-color: rgb(255 80 80 / 75%);
+    color: rgb(255 160 160);
+  }
+}
+
+// ── Generate dialog ────────────────────────────────────────────────────────
+.dialogForm {
+  flex-direction: column;
+  gap: 14px;
+  padding-top: 12px;
+}
+
+.dialogLabel {
+  color: vars.$gray;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.dialogActions {
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.dialogHint {
+  color: vars.$gray;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.workshopActions {
+  align-items: center;
+  gap: 12px;
+}
+
+.pathSwitcher {
+  background: rgb(0 18 50 / 72%);
+  border: 1px solid $blueprint-border;
+  border-radius: 10px;
+  display: flex;
+  padding: 3px;
+}
+
+.pathOption {
+  background: transparent;
+  border: 0;
+  border-radius: 8px;
+  color: $blueprint-muted;
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  padding: 6px 12px;
+
+  &.pathOptionActive {
+    background: rgb(80 160 255 / 22%);
+    color: vars.$white;
+  }
+}
+
+.cardSetList {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  width: 100%;
+}
+
+.cardSet {
+  align-items: stretch;
+  background: vars.$white;
+  border: 1px solid vars.$border-color;
+  border-radius: 12px;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  font: inherit;
+  gap: 8px;
+  padding: 14px;
+  text-align: left;
+  width: 100%;
+
+  &:hover {
+    border-color: vars.$blue-medium;
+    box-shadow: vars.$box-shadow-small;
+  }
+}
+
+.cardSetPrompt {
+  color: vars.$gray;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.cardSetTheme {
+  color: vars.$gray;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.cardLevelRow {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  width: 100%;
+}
+
+.cardLevel {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.cardPortraitFrame {
+  background: $blueprint-base;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.cardPortrait {
+  display: block;
+  height: auto;
+  object-fit: contain;
+  width: 100%;
+}
+
+.cardLevelIndex {
+  color: vars.$gray;
+  font-family: monospace;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.cardLevelTitle {
+  color: vars.$gray;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.cardLevelDescription {
+  color: vars.$gray;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.cardSetDetail {
+  padding: 8px 0 4px;
+}
+
+@media (width <= 800px) {
+  .cardLevelRow {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}

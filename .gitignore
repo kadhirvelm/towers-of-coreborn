@@ -1,0 +1,28 @@
+# Dependencies and generated output
+node_modules/
+dist/
+.next/
+.turbo/
+.swc/
+coverage/
+*.tsbuildinfo
+*.log
+
+# Local configuration and credentials
+.env
+.env.*
+!.env.example
+.env.prod
+.vercel
+.certs/
+.claude/settings.local.json
+.superpowers/
+
+# OS and editor files
+.DS_Store
+
+# Runtime-generated game assets
+packages/backend/src/public/*/failed/
+packages/backend/src/public/*/generated/
+
+dist/*

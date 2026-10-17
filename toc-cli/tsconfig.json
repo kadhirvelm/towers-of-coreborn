@@ -1,0 +1,27 @@
+{
+  "compilerOptions": {
+    "allowSyntheticDefaultImports": true,
+    "declaration": true,
+    "emitDecoratorMetadata": true,
+    "esModuleInterop": true,
+    "experimentalDecorators": true,
+    "forceConsistentCasingInFileNames": false,
+    "ignoreDeprecations": "6.0",
+    "incremental": true,
+    "module": "preserve",
+    "moduleResolution": "bundler",
+    "noFallthroughCasesInSwitch": false,
+    "noImplicitAny": true,
+    "outDir": "./dist",
+    "removeComments": true,
+    "rootDir": "./src",
+    "skipLibCheck": true,
+    "sourceMap": true,
+    "strictBindCallApply": true,
+    "strictNullChecks": true,
+    "target": "ES2021",
+    "types": ["node", "bun"]
+  },
+  "exclude": ["dist"],
+  "include": ["**/*.ts"]
+}

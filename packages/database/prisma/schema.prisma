@@ -1,0 +1,20 @@
+generator client {
+  provider        = "prisma-client-js"
+  engineType      = "library"
+  output          = "../dist"
+  binaryTargets   = ["native", "linux-arm64-openssl-3.0.x", "darwin-arm64", "debian-openssl-3.0.x"]
+  previewFeatures = ["partialIndexes"]
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model Asset {
+  id          String   @id @default(uuid())
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  name        String
+  description String
+  filePath    String
+}

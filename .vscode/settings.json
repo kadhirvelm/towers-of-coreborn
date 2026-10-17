@@ -1,0 +1,32 @@
+{
+  "[css]": { "editor.defaultFormatter": "stylelint.vscode-stylelint" },
+  "[javascript]": { "editor.defaultFormatter": "biomejs.biome" },
+  "[json]": { "editor.defaultFormatter": "biomejs.biome" },
+  "[scss]": { "editor.defaultFormatter": "stylelint.vscode-stylelint" },
+  "[typescript]": { "editor.defaultFormatter": "biomejs.biome" },
+  "editor.codeActionsOnSave": {
+    "source.action.useImportType.biome": "never",
+    "source.action.useSortedAttributes.biome": "explicit",
+    "source.fixAll": "explicit"
+  },
+  "editor.defaultFormatter": "biomejs.biome",
+  "editor.formatOnSave": true,
+  "editor.insertSpaces": true,
+  "editor.tabSize": 2,
+  "search.exclude": {
+    "**/.pnp.*": true,
+    "**/.yarn": true,
+    "**/*.build.tsbuildinfo": true,
+    "**/*.css": true,
+    "**/*.css.map": true,
+    "**/*.d.ts": true,
+    "**/*.d.ts.map": true,
+    "**/*.js": true,
+    "**/*.js.map": true,
+    "**/*.log": true,
+    "**/*.tsbuildinfo": true
+  },
+  "stylelint.validate": ["scss", "css"],
+  "typescript.enablePromptUseWorkspaceTsdk": true,
+  "typescript.tsdk": "node_modules/typescript/lib"
+}

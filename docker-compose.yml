@@ -1,0 +1,134 @@
+name: towers-of-coreborn
+
+x-log-labels: &log-labels
+  dev.towersofcoreborn.logs: "true"
+
+services:
+  postgres:
+    container_name: toc-postgres
+    image: postgres:15.3
+    ports:
+      - "127.0.0.1:5432:5432"
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_DB=towers-of-coreborn
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_HOST_AUTH_METHOD=trust
+    labels:
+      <<: *log-labels
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+  pgweb:
+    container_name: toc-pgweb
+    image: sosedoff/pgweb:0.17.0
+    ports:
+      - "127.0.0.1:2000:8081"
+    environment:
+      - PGWEB_DATABASE_URL=postgres://postgres:${POSTGRES_PASSWORD}@postgres:5432/towers-of-coreborn?sslmode=disable
+    labels:
+      <<: *log-labels
+    depends_on:
+      postgres:
+        condition: service_healthy
+  redis:
+    container_name: toc-redis
+    image: redis:7-alpine
+    ports:
+      - "127.0.0.1:6379:6379"
+    command: redis-server --appendonly yes
+    volumes:
+      - redis-data:/data
+    labels:
+      <<: *log-labels
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+  redis-commander:
+    container_name: toc-redis_commander
+    image: ghcr.io/joeferner/redis-commander:latest
+    ports:
+      - "127.0.0.1:8081:8081"
+    environment:
+      - REDIS_HOSTS=local:redis:6379
+    labels:
+      <<: *log-labels
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  openobserve:
+    container_name: toc-openobserve
+    image: openobserve/openobserve:v1.1.1
+    ports:
+      - "127.0.0.1:5080:5080"
+    environment:
+      ZO_ROOT_USER_EMAIL: ${OPENOBSERVE_ROOT_USER_EMAIL:-root@example.com}
+      ZO_ROOT_USER_PASSWORD: ${OPENOBSERVE_ROOT_USER_PASSWORD:-LocalOpenObserve1!}
+      ZO_DATA_DIR: /data
+    volumes:
+      - openobserve-data:/data
+
+  # Reads the Compose containers labeled above and stores their logs in OpenObserve.
+  vector:
+    container_name: toc-vector
+    image: timberio/vector:0.59.0-debian
+    user: root
+    environment:
+      VECTOR_DANGEROUSLY_ALLOW_ENV_VAR_INTERPOLATION: "true"
+      OPENOBSERVE_ROOT_USER_EMAIL: ${OPENOBSERVE_ROOT_USER_EMAIL:-root@example.com}
+      OPENOBSERVE_ROOT_USER_PASSWORD: ${OPENOBSERVE_ROOT_USER_PASSWORD:-LocalOpenObserve1!}
+    volumes:
+      - ./vector/vector.yaml:/etc/vector/vector.yaml:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+    depends_on:
+      - openobserve
+
+  redis-insight:
+    container_name: toc-redis_insight
+    image: redis/redisinsight:3.8.0
+    ports:
+      - "127.0.0.1:5540:5540"
+    environment:
+      RI_ACCEPT_TERMS_AND_CONDITIONS: "true"
+      RI_REDIS_ALIAS: local
+      RI_REDIS_HOST: redis
+      RI_REDIS_PORT: "6379"
+    volumes:
+      - redis-insight-data:/data
+    labels:
+      <<: *log-labels
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  gatus:
+    container_name: toc-gatus
+    image: ghcr.io/twin/gatus:v5.37.0
+    user: "0:0"
+    ports:
+      - "127.0.0.1:8088:8080"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./gatus/config.yaml:/config/config.yaml:ro
+      - gatus-data:/data
+    labels:
+      <<: *log-labels
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      openobserve:
+        condition: service_started
+
+volumes:
+  redis-data:
+  openobserve-data:
+  redis-insight-data:
+  gatus-data:

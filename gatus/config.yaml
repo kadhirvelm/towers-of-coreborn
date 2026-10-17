@@ -1,0 +1,79 @@
+web:
+  port: 8080
+
+storage:
+  type: sqlite
+  path: /data/gatus.db
+
+ui:
+  title: Towers of Coreborn
+  header: Towers of Coreborn
+  dashboard-heading: Local services
+  dashboard-subheading: Compose dependencies and the apps started by bun run dev
+  default-sort-by: group
+  buttons:
+    - name: OpenObserve
+      link: http://localhost:5080
+    - name: Redis Insight
+      link: http://localhost:5540
+    - name: pgweb
+      link: http://localhost:2000
+    - name: Redis Commander
+      link: http://localhost:8081
+
+endpoints:
+  - name: PostgreSQL
+    group: data
+    url: tcp://postgres:5432
+    interval: 15s
+    conditions:
+      - "[CONNECTED] == true"
+
+  - name: Redis
+    group: data
+    url: tcp://redis:6379
+    interval: 15s
+    conditions:
+      - "[CONNECTED] == true"
+
+  - name: pgweb
+    group: data
+    url: http://pgweb:8081
+    interval: 15s
+    conditions:
+      - "[STATUS] == 200"
+
+  - name: Redis Commander
+    group: data
+    url: http://redis-commander:8081
+    interval: 15s
+    conditions:
+      - "[STATUS] == 200"
+
+  - name: OpenObserve
+    group: observability
+    url: http://openobserve:5080/healthz
+    interval: 15s
+    conditions:
+      - "[STATUS] == 200"
+
+  - name: Redis Insight
+    group: observability
+    url: http://redis-insight:5540/api/health/
+    interval: 15s
+    conditions:
+      - "[STATUS] == 200"
+
+  - name: Backend
+    group: application
+    url: tcp://host.docker.internal:8080
+    interval: 15s
+    conditions:
+      - "[CONNECTED] == true"
+
+  - name: Frontend
+    group: application
+    url: tcp://host.docker.internal:3000
+    interval: 15s
+    conditions:
+      - "[CONNECTED] == true"

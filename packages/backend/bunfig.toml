@@ -1,0 +1,5 @@
+[test]
+coverageDir = "./coverage"
+coveragePathIgnorePatterns = ["../api/**", "../database/**", "../agent-instructions/**"]
+coverageReporter = ["text", "lcov"]
+root = "./src"

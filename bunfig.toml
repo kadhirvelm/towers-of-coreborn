@@ -1,0 +1,5 @@
+[install]
+# Keep the classic hoisted node_modules layout. The repo's scripts rely on
+# workspace bins (e.g. `toc`, `prisma`) being available from the root
+# node_modules/.bin, which Bun's default isolated linker does not provide.
+linker = "hoisted"

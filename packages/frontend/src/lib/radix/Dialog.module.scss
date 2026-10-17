@@ -1,0 +1,22 @@
+@use "@/styles/variables.scss" as vars;
+
+// Radix themes doesn't set the dialog font family, so we do it explicitly here. There are no variables because it's in a portal.
+.dialog {
+    @extend %radix-themes;
+
+    font-family: Inter, sans-serif;
+}
+
+.closeButton {
+    background: transparent;
+    border: none;
+    border-radius: 4px;
+    color: vars.$gray;
+    cursor: pointer;
+    transition: color 0.3s ease;
+    z-index: 1;
+
+    &:hover {
+        background: vars.$hover;
+    }
+}

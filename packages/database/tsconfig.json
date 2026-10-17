@@ -1,0 +1,10 @@
+{
+  "compilerOptions": {
+    "ignoreDeprecations": "6.0",
+    "module": "CommonJS",
+    "moduleResolution": "node",
+    "outDir": "./dist",
+    "rootDir": "./prisma"
+  },
+  "extends": "../../tsconfig.json"
+}

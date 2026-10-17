@@ -1,0 +1,29 @@
+@use "@/styles/variables.scss" as vars;
+
+/* stylelint-disable selector-pseudo-class-no-unknown -- :global for CSS module canvas (Next). */
+
+.layout {
+  background: vars.$white;
+  height: 100vh;
+  inset: 0;
+  overflow: hidden;
+  position: fixed;
+  width: 100vw;
+  z-index: 0;
+}
+
+.gameMount {
+  height: 100%;
+  left: 0;
+  min-height: 0;
+  position: absolute;
+  right: 0;
+  top: 0;
+  width: 100%;
+  z-index: 0;
+
+  /* Stops the browser from bilinearly scaling the WebGL/canvas, which shimmers on motion. */
+  :global(canvas) {
+    image-rendering: pixelated;
+  }
+}

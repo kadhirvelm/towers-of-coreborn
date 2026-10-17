@@ -1,0 +1,30 @@
+{
+  "extends": ["//"],
+  "tasks": {
+    "build": {
+      "env": [
+        "NODE_ENV",
+        "PUBLIC_URL",
+        "DATABASE_HOST_URL",
+        "BACKEND_API_URL",
+        "FRONTEND_URL",
+        "GEMINI_CREDENTIALS",
+        "ANTHROPIC_API_KEY",
+        "OPENAI_API_KEY"
+      ],
+      "outputs": ["dist/**"]
+    },
+    "dev": {
+      "env": [
+        "NODE_ENV",
+        "PUBLIC_URL",
+        "DATABASE_HOST_URL",
+        "BACKEND_API_URL",
+        "FRONTEND_URL",
+        "GEMINI_CREDENTIALS",
+        "ANTHROPIC_API_KEY",
+        "OPENAI_API_KEY"
+      ]
+    }
+  }
+}

@@ -1,0 +1,44 @@
+{
+  "dependencies": {
+    "@radix-ui/themes": "^3.3.0",
+    "@towers-of-coreborn/api": "workspace:^",
+    "@vercel/analytics": "^2.0.1",
+    "@vercel/speed-insights": "^2.0.0",
+    "clsx": "^2.1.1",
+    "lodash-es": "^4.18.1",
+    "lucide-react": "^1.48.0",
+    "next": "^16.3.6",
+    "phaser": "^4.2.1",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "react-toastify": "^11.1.0"
+  },
+  "devDependencies": {
+    "@happy-dom/global-registrator": "^20.14.5",
+    "@types/bun": "^1.4.2",
+    "@types/lodash-es": "^4.17.12",
+    "@types/node": "^25.9.8",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "knip": "^6.38.0",
+    "postcss-scss": "^4.0.9",
+    "sass": "^1.105.0",
+    "stylelint": "^17.15.0",
+    "stylelint-config-standard-scss": "^17.0.0",
+    "stylelint-order": "^8.1.1",
+    "typescript": "^6.0.3",
+    "typescript-plugin-css-modules": "^5.2.0"
+  },
+  "name": "@towers-of-coreborn/frontend",
+  "scripts": {
+    "build": "next build --turbo",
+    "check": "tsc --noEmit",
+    "dev": "next dev --turbo --experimental-https --experimental-https-key ../../.certs/localhost-key.pem --experimental-https-cert ../../.certs/localhost.pem",
+    "knip": "knip",
+    "lint": "biome check && stylelint '**/*.{css,scss}'",
+    "lint:fix": "biome check --fix && stylelint '**/*.{css,scss}' --fix",
+    "start": "next start",
+    "test": "bun run toc run-tests frontend"
+  },
+  "version": "0.1.0"
+}

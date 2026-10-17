@@ -1,0 +1,24 @@
+{
+  "dependencies": {
+    "@prisma/adapter-pg": "^7.10.0",
+    "@prisma/client": "^7.10.0"
+  },
+  "devDependencies": {
+    "@towers-of-coreborn/toc-cli": "workspace:*",
+    "prisma": "^7.10.0",
+    "ts-node": "^10.9.2"
+  },
+  "main": "dist/index.js",
+  "name": "@towers-of-coreborn/database",
+  "scripts": {
+    "build": "bun run db:generate",
+    "db:create-migration": "bun run toc database 'bunx prisma migrate dev --create-only'",
+    "db:generate": "bun run toc database 'bunx prisma format && bunx prisma generate'",
+    "db:migrate": "bun run toc database 'bunx prisma migrate deploy'",
+    "db:reset": "bun run toc database 'bunx prisma migrate reset' && bun run db:seed",
+    "db:seed": "bun run toc database 'bunx prisma db seed'",
+    "db:studio": "bun run toc database 'bunx prisma studio'",
+    "db:validate": "bun run toc database 'bunx prisma validate'"
+  },
+  "types": "dist/index.d.ts"
+}

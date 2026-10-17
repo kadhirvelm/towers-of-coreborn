@@ -1,0 +1,13 @@
+{
+  "extends": ["//"],
+  "tasks": {
+    "build": {
+      "dependsOn": ["^build"],
+      "env": ["NODE_ENV", "PUBLIC_URL", "APP_BASE_URL"],
+      "outputs": [".next/**", "!.next/cache/**"]
+    },
+    "dev": {
+      "env": ["NODE_ENV", "PUBLIC_URL", "BACKEND_API_URL", "APP_BASE_URL"]
+    }
+  }
+}

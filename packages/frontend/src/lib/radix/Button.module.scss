@@ -1,0 +1,313 @@
+/* stylelint-disable selector-class-pattern */
+/* stylelint-disable selector-pseudo-class-no-unknown */
+/* stylelint-disable no-descending-specificity */
+
+@use "@/styles/variables.scss" as vars;
+
+.button {
+    &:global(.rt-Button) {
+        border-radius: 8px;
+        box-shadow: none;
+        cursor: pointer;
+
+        &:global([data-disabled]) {
+            cursor: not-allowed;
+        }
+
+        font-weight: 500;
+        gap: 6px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        transition: none;
+        white-space: nowrap;
+        width: fit-content;
+
+        /* Size overrides — skip ghost (uses negative-margin sizing) */
+        &:global(.rt-r-size-1):not(:global(.rt-variant-ghost)) {
+            font-size: 12px;
+            height: 28px;
+            padding-left: 10px;
+            padding-right: 10px;
+        }
+
+        &:global(.rt-r-size-2):not(:global(.rt-variant-ghost)) {
+            font-size: 14px;
+            height: 36px;
+            padding-left: 16px;
+            padding-right: 16px;
+        }
+
+        &:global(.rt-r-size-3):not(:global(.rt-variant-ghost)) {
+            font-size: 14px;
+            height: 40px;
+            padding-left: 24px;
+            padding-right: 24px;
+        }
+
+        /* Solid Black — user-driven create/commit actions */
+        &:global(.rt-variant-solid):not(:global([data-accent-color])) {
+            background-color: vars.$accent;
+            color: vars.$white;
+            filter: none;
+
+            &:global([data-disabled]) {
+                background-color: vars.$surface-disabled;
+                color: rgba(vars.$white, 0.6);
+            }
+
+            @media (hover: hover) {
+                &:hover {
+                    background-color: vars.$accent-hover;
+                }
+            }
+
+            &:active:not(:global([data-state="open"])) {
+                background-color: vars.$accent-pressed;
+                filter: none;
+            }
+        }
+
+        /* Outline Black — user-driven actions, inverts to solid on hover */
+        &:global(.rt-variant-outline):not(:global([data-accent-color])) {
+            background-color: transparent;
+            box-shadow: inset 0 0 0 1px vars.$accent;
+            color: vars.$accent;
+
+            &:global([data-disabled]) {
+                background-color: transparent;
+                box-shadow: inset 0 0 0 1px vars.$surface-disabled;
+                color: vars.$surface-disabled;
+            }
+
+            @media (hover: hover) {
+                &:hover {
+                    background-color: vars.$accent;
+                    box-shadow: inset 0 0 0 1px vars.$accent;
+                    color: vars.$white;
+                }
+            }
+
+            &:active:not(:global([data-state="open"])) {
+                background-color: vars.$accent-pressed;
+                box-shadow: inset 0 0 0 1px vars.$accent-pressed;
+                color: vars.$white;
+            }
+        }
+
+        /* Outline Gray — secondary/cancel/neutral actions */
+        &:global(.rt-variant-outline):global([data-accent-color="gray"]) {
+            background-color: vars.$surface;
+            box-shadow: inset 0 0 0 1px vars.$surface-border;
+            color: vars.$surface-text;
+
+            &:global([data-disabled]) {
+                background-color: vars.$surface;
+                box-shadow: inset 0 0 0 1px vars.$surface-hover;
+                color: vars.$gray;
+            }
+
+            @media (hover: hover) {
+                &:hover {
+                    background-color: vars.$surface-hover;
+                }
+            }
+
+            &:active:not(:global([data-state="open"])) {
+                background-color: vars.$surface-border;
+            }
+        }
+
+        /* Solid Blue — AI generate/create and navigation actions */
+        &:global(.rt-variant-solid):global([data-accent-color="blue"]) {
+            background-color: vars.$blue;
+            color: vars.$white;
+            filter: none;
+
+            &:global([data-disabled]) {
+                background-color: vars.$blue-muted;
+                color: rgba(vars.$white, 0.7);
+            }
+
+            @media (hover: hover) {
+                &:hover {
+                    background-color: vars.$blue-solid-hover;
+                }
+            }
+
+            &:active:not(:global([data-state="open"])) {
+                background-color: vars.$blue-pressed;
+                filter: none;
+            }
+        }
+
+        /* Outline Blue — secondary AI generate actions */
+        &:global(.rt-variant-outline):global([data-accent-color="blue"]) {
+            background-color: vars.$white;
+            box-shadow: inset 0 0 0 1px vars.$blue;
+            color: vars.$blue;
+
+            &:global([data-disabled]) {
+                background-color: vars.$white;
+                box-shadow: inset 0 0 0 1px vars.$blue-muted;
+                color: vars.$blue-muted;
+            }
+
+            @media (hover: hover) {
+                &:hover {
+                    background-color: vars.$blue-bg;
+                    box-shadow: inset 0 0 0 1px vars.$blue;
+                }
+            }
+
+            &:active:not(:global([data-state="open"])) {
+                background-color: rgba(vars.$blue, 0.15);
+            }
+        }
+
+        /* Solid Red — destructive/irreversible actions */
+        &:global(.rt-variant-solid):global([data-accent-color="red"]) {
+            background-color: vars.$danger;
+            color: vars.$white;
+            filter: none;
+
+            &:global([data-disabled]) {
+                background-color: vars.$danger-light;
+                color: rgba(vars.$white, 0.7);
+            }
+
+            @media (hover: hover) {
+                &:hover {
+                    background-color: vars.$danger-hover;
+                }
+            }
+
+            &:active:not(:global([data-state="open"])) {
+                background-color: vars.$danger-pressed;
+                filter: none;
+            }
+        }
+
+        /* Outline Red — cautionary destructive actions */
+        &:global(.rt-variant-outline):global([data-accent-color="red"]) {
+            background-color: transparent;
+            box-shadow: inset 0 0 0 1px vars.$danger;
+            color: vars.$danger;
+
+            &:global([data-disabled]) {
+                background-color: transparent;
+                box-shadow: inset 0 0 0 1px vars.$danger-light;
+                color: vars.$danger-light;
+            }
+
+            @media (hover: hover) {
+                &:hover {
+                    background-color: vars.$danger-bg;
+                    box-shadow: inset 0 0 0 1px vars.$danger;
+                    color: vars.$danger;
+                }
+            }
+
+            &:active:not(:global([data-state="open"])) {
+                background-color: vars.$danger-light;
+                box-shadow: inset 0 0 0 1px vars.$danger;
+                color: vars.$danger;
+            }
+        }
+
+        /* Outline Purple — category/tag actions */
+        &:global(.rt-variant-outline):global([data-accent-color="purple"]) {
+            background-color: transparent;
+            box-shadow: inset 0 0 0 1px vars.$purple-9;
+            color: vars.$purple-9;
+
+            &:global([data-disabled]) {
+                background-color: transparent;
+                box-shadow: inset 0 0 0 1px rgba(vars.$purple-9, 0.4);
+                color: rgba(vars.$purple-9, 0.4);
+            }
+
+            @media (hover: hover) {
+                &:hover {
+                    background-color: rgba(vars.$purple-9, 0.08);
+                    box-shadow: inset 0 0 0 1px vars.$purple-9;
+                }
+            }
+
+            &:active:not(:global([data-state="open"])) {
+                background-color: rgba(vars.$purple-9, 0.15);
+            }
+        }
+
+        /* Outline Pink — category/tag actions */
+        &:global(.rt-variant-outline):global([data-accent-color="pink"]) {
+            background-color: transparent;
+            box-shadow: inset 0 0 0 1px vars.$pink-9;
+            color: vars.$pink-9;
+
+            &:global([data-disabled]) {
+                background-color: transparent;
+                box-shadow: inset 0 0 0 1px rgba(vars.$pink-9, 0.4);
+                color: rgba(vars.$pink-9, 0.4);
+            }
+
+            @media (hover: hover) {
+                &:hover {
+                    background-color: rgba(vars.$pink-9, 0.08);
+                    box-shadow: inset 0 0 0 1px vars.$pink-9;
+                }
+            }
+
+            &:active:not(:global([data-state="open"])) {
+                background-color: rgba(vars.$pink-9, 0.15);
+            }
+        }
+
+        /* Outline Green — category/tag actions */
+        &:global(.rt-variant-outline):global([data-accent-color="green"]) {
+            background-color: transparent;
+            box-shadow: inset 0 0 0 1px vars.$green;
+            color: vars.$green;
+
+            &:global([data-disabled]) {
+                background-color: transparent;
+                box-shadow: inset 0 0 0 1px rgba(vars.$green, 0.4);
+                color: rgba(vars.$green, 0.4);
+            }
+
+            @media (hover: hover) {
+                &:hover {
+                    background-color: rgba(vars.$green, 0.08);
+                    box-shadow: inset 0 0 0 1px vars.$green;
+                }
+            }
+
+            &:active:not(:global([data-state="open"])) {
+                background-color: rgba(vars.$green, 0.15);
+            }
+        }
+
+        /* Outline Amber — sync/reconcile actions */
+        &:global(.rt-variant-outline):global([data-accent-color="amber"]) {
+            background-color: transparent;
+            box-shadow: inset 0 0 0 1px vars.$amber;
+            color: vars.$amber;
+
+            &:global([data-disabled]) {
+                background-color: transparent;
+                box-shadow: inset 0 0 0 1px rgba(vars.$amber, 0.4);
+                color: rgba(vars.$amber, 0.4);
+            }
+
+            @media (hover: hover) {
+                &:hover {
+                    background-color: rgba(vars.$amber, 0.08);
+                    box-shadow: inset 0 0 0 1px vars.$amber;
+                }
+            }
+
+            &:active:not(:global([data-state="open"])) {
+                background-color: rgba(vars.$amber, 0.15);
+            }
+        }
+    }
+}

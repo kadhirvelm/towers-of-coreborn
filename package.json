@@ -1,0 +1,35 @@
+{
+  "author": "Towers of Coreborn",
+  "devDependencies": {
+    "@biomejs/biome": "^2.5.14",
+    "@types/bun": "^1.4.2",
+    "@types/node": "^25.9.8",
+    "turbo": "2.11.4",
+    "typescript": "6.0.3"
+  },
+  "engines": {
+    "node": "25.8.2"
+  },
+  "license": "Unlicense",
+  "monorepo": true,
+  "name": "towers-of-coreborn",
+  "packageManager": "bun@1.4.2",
+  "private": true,
+  "scripts": {
+    "build": "turbo run build",
+    "check": "turbo run check",
+    "ci": "turbo run ci",
+    "dev": "bun install && bun run toc dev",
+    "lint": "turbo run lint",
+    "test": "bun run toc run-tests all"
+  },
+  "trustedDependencies": [
+    "@prisma/engines",
+    "@swc/core",
+    "prisma"
+  ],
+  "workspaces": [
+    "toc-cli",
+    "packages/*"
+  ]
+}

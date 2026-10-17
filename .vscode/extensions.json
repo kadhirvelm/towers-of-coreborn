@@ -1,0 +1,14 @@
+{
+  "recommendations": [
+    "ms-azuretools.vscode-docker",
+    "eamodio.gitlens",
+    "christian-kohler.npm-intellisense",
+    "graphite.gti-vscode",
+    "prisma.prisma",
+    "yoavbls.pretty-ts-errors",
+    "streetsidesoftware.code-spell-checker",
+    "ms-azuretools.vscode-containers",
+    "stylelint.vscode-stylelint",
+    "biomejs.biome"
+  ]
+}

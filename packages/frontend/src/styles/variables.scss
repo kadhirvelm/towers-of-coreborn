@@ -1,0 +1,146 @@
+/* stylelint-disable custom-property-empty-line-before */
+/* stylelint-disable scss/dollar-variable-empty-line-before */
+
+/**
+* All colors come from Radix themes, 6 = light, 9 = normal, 11 = hover, 12 = dark
+*/
+
+$white: #fff;
+$black: #000;
+
+$amber-light: #FFE8C2;
+$amber-9: #FFB224;
+$bronze-9: #A18072;
+
+$neutral-light: #F9F9FB;
+$neutral-light2: #F0F0F3;
+$neutral: #E8E8E8;
+$neutral-disabled: rgba($neutral, 0.5);
+
+$font: #292f33;
+$muted-font: #c5c8ca;
+
+$gray-light: #D9D9D9;
+$gray: #8D8D8D;
+$gray-hover: #646464;
+$gray-dark: #202020;
+
+$blue-light-extra: #EEF2FD;
+$blue-light: #C1D0FF;
+$blue-medium: #82A1FF;
+$blue: #3E63DD;
+$blue-hover: #3A5BC7;
+$blue-dark: #1F2D5C;
+
+$green-light: #ADDDC0;
+$green: #30A46C;
+$green-hover: #218358;
+$green-dark: #193B2D;
+
+$yellow-light: #F3D768;
+$yellow: #FFE629;
+$yellow-hover: #9E6C00;
+$yellow-dark: #473B1F;
+
+$red-light: #FDBDBE;
+$red: #E5484D;
+$red-hover: #CE2C31;
+$red-dark: #641723;
+
+$purple: #800080;
+
+$violet-light: #C4B5FD;
+$violet: #8B5CF6;
+$violet-hover: #7C3AED;
+$violet-dark: #2F265F;
+
+$orange-light: #FFC182;
+$orange: #F76B15;
+$orange-hover: #CC4E00;
+$orange-dark: #582D1D;
+
+$background: #F7F7F9;
+$hover: rgba($muted-font, 0.25);
+$off-white: #fbfcfc;
+
+/* Accent black */
+$accent: #111;
+$accent-hover: #1f1f1f;
+$accent-pressed: #0a0a0a;
+
+/* Surface (slate UI) */
+$surface: #F2F3F6;
+$surface-muted: #EAECF0;
+$surface-hover: #E6E8EE;
+$surface-border: #D5D7DE;
+$surface-disabled: #C7C9D1;
+$surface-text: #3C3F46;
+
+/* Danger (destructive red) */
+$danger: #DC2626;
+$danger-hover: #B91C1C;
+$danger-pressed: #991B1B;
+$danger-light: #FECACA;
+$danger-bg: #FEF2F2;
+
+/* Blue (extended) */
+$blue-solid-hover: #3354C5;
+$blue-pressed: #2B46A8;
+$blue-muted: #B7C4F6;
+$blue-bg: #F0F4FF;
+
+/* Accent category colors */
+$purple-9: #8E4EC6;
+$pink-9: #D6409F;
+$amber: #F59E0B;
+
+$border-color: rgba(#000932, 0.12);
+$drop-shadow: #00000026;
+$hover-box-shadow: 0 4px 12px rgb(0 0 0 / 15%);
+$box-shadow: 0 4px 6px $drop-shadow;
+$box-shadow-small: 0 2px 4px rgb(0 0 0 / 8%);
+$box-shadow-big: 0 4px 16px -8px rgba($black, 0.10), 0 3px 12px -4px rgba($black, 0.10), 0 3px 12px -4px rgb(rgb(0 0 51), 0.06);
+
+$blue-gradient: linear-gradient(180deg, rgba($white, 1) 0%, #EDF2FE 100%);
+
+$indent-guide-color: #e5e7eb;
+
+%instructions {
+    background: rgba($blue-light, 0.15);
+    border: 1px solid $blue-light;
+}
+
+%radix-themes {
+    --default-font-family: var(--font-inter);
+    --default-font-weight: 400;
+    --gray-12: #{$font};
+
+    --accent-1: #fcfcfc;
+    --accent-2: #f9f9f9;
+    --accent-3: #efefef;
+    --accent-4: #e8e8e8;
+    --accent-5: #dedede;
+    --accent-6: #d0d0d0;
+    --accent-7: #bbb;
+    --accent-8: #8d8d8d;
+    --accent-9: #111;
+    --accent-10: #1f1f1f;
+    --accent-11: #3b3b3b;
+    --accent-12: #161616;
+    --accent-a1: rgb(0 0 0 / 1.6%);
+    --accent-a2: rgb(0 0 0 / 2.4%);
+    --accent-a3: rgb(0 0 0 / 6.3%);
+    --accent-a4: rgb(0 0 0 / 9.4%);
+    --accent-a5: rgb(0 0 0 / 13.3%);
+    --accent-a6: rgb(0 0 0 / 18.4%);
+    --accent-a7: rgb(0 0 0 / 26.7%);
+    --accent-a8: rgb(0 0 0 / 44.7%);
+    --accent-a9: rgb(0 0 0 / 100%);
+    --accent-a10: rgb(0 0 0 / 89%);
+    --accent-a11: rgb(0 0 0 / 76.9%);
+    --accent-a12: rgb(0 0 0 / 91.4%);
+    --accent-contrast: #fff;
+    --accent-surface: rgb(0 0 0 / 5%);
+    --accent-indicator: #111;
+    --accent-track: #111;
+}

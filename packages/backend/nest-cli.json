@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json.schemastore.org/nest-cli",
+  "collection": "@nestjs/schematics",
+  "compilerOptions": {
+    "assets": [
+      {
+        "include": "public/**/*",
+        "outDir": "dist"
+      }
+    ],
+    "builder": "swc",
+    "deleteOutDir": true,
+    "watchAssets": true
+  },
+  "sourceRoot": "src"
+}
