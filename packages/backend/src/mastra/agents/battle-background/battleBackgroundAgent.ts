@@ -9,11 +9,7 @@ import {
   deleteImageFiles,
 } from "src/mastra/tools/generateImageTool.service";
 import { GenerationAbortCoordinator } from "../generationAbort.coordinator";
-import {
-  GenerationCancelledException,
-  isGenerationAbort,
-  throwIfAborted,
-} from "../generationCancelled";
+import { throwIfAborted } from "../generationCancelled";
 import type { QueryableAgent } from "../queryableAgent";
 
 /**
@@ -82,37 +78,33 @@ export class BattleBackgroundAgent
   public async query(
     input: BattleBackgroundInput,
   ): Promise<BattleBackgroundResult> {
-    const run = await this.generationAbort.begin(input.generationId);
-    let toolOutput: unknown;
-    try {
-      throwIfAborted(run.signal);
-      const result = await this.agents.runGenerationCoordinator({
-        abortSignal: run.signal,
-        agentId: "battle-background-generation-agent",
-        instructions: BATTLE_BACKGROUND_AGENT_INSTRUCTIONS,
-        maxSteps: BATTLE_BACKGROUND_COORDINATOR_STEPS,
-        outputLabel: "Battle background generation",
-        prompt: input.prompt,
-        readToolOutput: (raw) => raw,
-        toolId: BattleBackgroundAgentTool.GenerateImage,
-        tools: BattleBackgroundAgentTool,
-      });
-      toolOutput = result.toolOutput;
-      throwIfAborted(run.signal);
-      const background = readBattleBackgroundImage(toolOutput);
-      const saved = await this.toolService.saveGeneratedBackground({
-        image: background.image,
-        sourcePrompt: input.prompt,
-      });
-      return { id: saved.id, summary: result.text };
-    } catch (error) {
-      await deleteImageFiles(collectImageFilePaths(toolOutput));
-      if (isGenerationAbort(error, run.signal)) {
-        throw new GenerationCancelledException();
+    return this.generationAbort.run(input.generationId, async (signal) => {
+      let toolOutput: unknown;
+      try {
+        const result = await this.agents.runGenerationCoordinator({
+          abortSignal: signal,
+          agentId: "battle-background-generation-agent",
+          instructions: BATTLE_BACKGROUND_AGENT_INSTRUCTIONS,
+          maxSteps: BATTLE_BACKGROUND_COORDINATOR_STEPS,
+          outputLabel: "Battle background generation",
+          prompt: input.prompt,
+          readToolOutput: (raw) => raw,
+          supportingToolIds: [BattleBackgroundAgentTool.ConsultProductNow],
+          toolId: BattleBackgroundAgentTool.GenerateImage,
+          tools: BattleBackgroundAgentTool,
+        });
+        toolOutput = result.toolOutput;
+        throwIfAborted(signal);
+        const background = readBattleBackgroundImage(toolOutput);
+        const saved = await this.toolService.saveGeneratedBackground({
+          image: background.image,
+          sourcePrompt: input.prompt,
+        });
+        return { id: saved.id, summary: result.text };
+      } catch (error) {
+        await deleteImageFiles(collectImageFilePaths(toolOutput));
+        throw error;
       }
-      throw error;
-    } finally {
-      await run.end();
-    }
+    });
   }
 }

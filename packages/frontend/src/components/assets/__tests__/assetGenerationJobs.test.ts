@@ -1,14 +1,19 @@
 import { describe, expect, test } from "bun:test";
-import type { ServiceError } from "@towers-of-coreborn/api";
-import { GENERATION_CANCELLED_STATUS } from "@towers-of-coreborn/api";
+import {
+  DUNGEON_ASSET_CLASS_ID,
+  GENERATION_CANCELLED_STATUS,
+  type ServiceError,
+} from "@towers-of-coreborn/api";
 import {
   applyGenerationResult,
   completeAssetGenerationJob,
   createAssetGenerationJobState,
   dismissAssetGenerationJob,
+  dungeonSlotJobs,
   failAssetGenerationJob,
   jobsForAssetClass,
   markAssetGenerationJobStopping,
+  reconcileInFlightJobs,
   refreshKeyForAssetClass,
   resultsForAssetClass,
   startAssetGenerationJob,
@@ -111,6 +116,55 @@ describe("asset generation jobs", () => {
     ]);
     expect(refreshKeyForAssetClass(finished, "card-characters")).toBe(1);
     expect(refreshKeyForAssetClass(finished, "battle-backgrounds")).toBe(1);
+  });
+
+  test("restores a Redis slot run and clears it when Redis drops it", () => {
+    const restored = reconcileInFlightJobs(createAssetGenerationJobState(), [
+      {
+        dungeonId: "dungeon-1",
+        generationId: "run-1",
+        kind: "enemy",
+        prompt: "A moss bell",
+        slotId: "slot-1",
+        startedAt: "2026-10-18T00:00:00.000Z",
+      },
+    ]);
+
+    expect(jobsForAssetClass(restored, "enemies")).toEqual([
+      {
+        assetClassId: "enemies",
+        awaitingServer: false,
+        dungeonId: "dungeon-1",
+        error: null,
+        id: "run-1",
+        prompt: "A moss bell",
+        slotId: "slot-1",
+        stopping: false,
+      },
+    ]);
+    expect(dungeonSlotJobs(restored)).toHaveLength(1);
+
+    const finished = reconcileInFlightJobs(restored, []);
+
+    expect(jobsForAssetClass(finished, "enemies")).toEqual([]);
+    expect(refreshKeyForAssetClass(finished, "enemies")).toBe(1);
+    expect(refreshKeyForAssetClass(finished, DUNGEON_ASSET_CLASS_ID)).toBe(1);
+  });
+
+  test("keeps a slot run that this page started until Redis lists it", () => {
+    const started = startAssetGenerationJob(createAssetGenerationJobState(), {
+      assetClassId: "enemies",
+      awaitingServer: true,
+      dungeonId: "dungeon-1",
+      id: "run-1",
+      prompt: "A moss bell",
+      slotId: "slot-1",
+    });
+
+    const waiting = reconcileInFlightJobs(started, []);
+
+    expect(waiting).toBe(started);
+    expect(jobsForAssetClass(waiting, "enemies")).toHaveLength(1);
   });
 
   test("does not refetch a job that was already dismissed", () => {

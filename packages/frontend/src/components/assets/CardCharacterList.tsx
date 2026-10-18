@@ -4,6 +4,7 @@ import type { ListCardCharactersResponse } from "@towers-of-coreborn/api";
 import { useState } from "react";
 import { Dialog, Flex } from "@/lib/radix";
 import styles from "./Assets.module.scss";
+import { CopyableError } from "./CopyableError";
 import { type PendingJob, PendingJobCard } from "./PendingJobCard";
 
 type CardCharacterSet = ListCardCharactersResponse["sets"][number];
@@ -55,7 +56,7 @@ export function CardCharacterList({
           <span className={styles.loadingText}>Loading characters…</span>
         </Flex>
       )}
-      {error != null && <span className={styles.errorText}>{error}</span>}
+      {error != null && <CopyableError message={error} />}
       {!isLoading && !hasPending && result != null && sets.length === 0 && (
         <Flex className={styles.emptyState}>
           <span>No card characters yet</span>

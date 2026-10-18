@@ -1,8 +1,13 @@
 import { createTool } from "@mastra/core/tools";
-import type { PlayableCardLoreSource } from "@towers-of-coreborn/api";
+import {
+  PLAYABLE_CARD_CHAIN_KINDS,
+  PLAYABLE_CARD_KINDS,
+  type PlayableCardLoreSource,
+} from "@towers-of-coreborn/api";
 import { throwIfAborted } from "src/mastra/agents/generationCancelled";
 import { ProductNowMcpService } from "src/product-now-mcp/product-now-mcp.service";
 import { z } from "zod";
+import { type CardProgression, strongerCardError } from "./cardProgression";
 import { parseLoreSearchResult } from "./parseLoreSearchResult";
 import { CARD_GAME_FOLDER_ID } from "./playableCardSpec";
 import {
@@ -22,6 +27,8 @@ export const SUBMIT_PLAYABLE_CARD_TOOL_ID = "submit-playable-card";
  */
 export interface PlayableCardResearchState {
   draft?: PlayableCardDraft;
+  /** Why the most recent submission was rejected, if one was */
+  lastRejection?: string;
   loreSources: PlayableCardLoreSource[];
 }
 
@@ -33,17 +40,25 @@ const searchInputSchema = z.object({
     ),
 });
 
-const effectSchema = z.object({
+/** Empty string means the effect is not a combo. The other values match the API. */
+const EFFECT_CHAIN_VALUES = ["", ...PLAYABLE_CARD_CHAIN_KINDS] as const;
+
+/**
+ * One effect the card generator may submit.
+ * `kind` is the shared `PlayableCardKind` union, so a generated card stays
+ * inside the API rules instead of inventing a new effect.
+ */
+export const playableCardEffectSchema = z.object({
   amount: z
     .number()
     .describe("Attack or defend 4-16, draw 1-2, aether 1-3, combo 6-20."),
   chainsFrom: z
-    .string()
+    .enum(EFFECT_CHAIN_VALUES)
     .describe(
       "For combo, the earlier card kind: attack, defend, draw, or aether. Empty string otherwise.",
     ),
   kind: z
-    .string()
+    .enum(PLAYABLE_CARD_KINDS)
     .describe("One toolkit kind: attack, defend, draw, aether, or combo."),
   text: z
     .string()
@@ -60,7 +75,7 @@ const submitInputSchema = z.object({
       "Flavor text: one or two short sentences, 20 to 240 characters. A vague, mysterious hint of what this card is in the Tower's lore.",
     ),
   effects: z
-    .array(effectSchema)
+    .array(playableCardEffectSchema)
     .describe("One or two effects. Each kind may appear once."),
   name: z.string().describe("Card name, 2 to 48 characters."),
   scene: z
@@ -88,6 +103,7 @@ const submitOutputSchema = z.object({
  */
 export function createPlayableCardResearchTools(params: {
   productNow: ProductNowMcpService;
+  progression?: CardProgression;
   sessionId: string;
   signal: AbortSignal;
   state: PlayableCardResearchState;
@@ -168,26 +184,50 @@ async function searchLore(
 function submitCard(
   input: z.infer<typeof submitInputSchema>,
   params: {
+    progression?: CardProgression;
     signal: AbortSignal;
     state: PlayableCardResearchState;
   },
 ): { accepted: boolean; message: string } {
   throwIfAborted(params.signal);
   if (params.state.loreSources.length === 0) {
-    return {
-      accepted: false,
-      message:
-        "Search the Lore document and use a returned passage before submitting.",
-    };
+    return rejectCard(
+      params.state,
+      "Search the Lore document and use a returned passage before submitting.",
+    );
   }
 
   const validated = validatePlayableCardDraft(input);
   if ("error" in validated) {
-    return { accepted: false, message: validated.error };
+    return rejectCard(params.state, validated.error);
+  }
+  if (params.progression !== undefined) {
+    const progressionError = strongerCardError(
+      validated.draft,
+      params.progression,
+    );
+    if (progressionError !== undefined) {
+      return rejectCard(params.state, progressionError);
+    }
   }
 
   params.state.draft = validated.draft;
+  params.state.lastRejection = undefined;
   return { accepted: true, message: "Card accepted." };
+}
+
+/**
+ * Records why a submission failed so a run that never recovers can report it.
+ * @param state - Research state for this generation
+ * @param message - Correction the model should apply
+ * @returns The rejection returned to the model
+ */
+function rejectCard(
+  state: PlayableCardResearchState,
+  message: string,
+): { accepted: boolean; message: string } {
+  state.lastRejection = message;
+  return { accepted: false, message };
 }
 
 /**

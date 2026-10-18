@@ -3,6 +3,7 @@ import { BattleBackgroundAgentModule } from "./agents/battle-background/battleBa
 import { CardCharacterAgentModule } from "./agents/card-character/cardCharacterAgent.module";
 import { CardGeneratorAgentModule } from "./agents/card-generator/cardGeneratorAgent.module";
 import { DungeonCoordinatorAgentModule } from "./agents/dungeon-coordinator/dungeonCoordinatorAgent.module";
+import { EnemyAgentModule } from "./agents/enemy/enemyAgent.module";
 import { MastraCoreModule } from "./mastraCore.module";
 
 /**
@@ -16,6 +17,7 @@ import { MastraCoreModule } from "./mastraCore.module";
     CardCharacterAgentModule,
     CardGeneratorAgentModule,
     DungeonCoordinatorAgentModule,
+    EnemyAgentModule,
   ],
   imports: [
     MastraCoreModule,
@@ -23,6 +25,7 @@ import { MastraCoreModule } from "./mastraCore.module";
     CardCharacterAgentModule,
     CardGeneratorAgentModule,
     DungeonCoordinatorAgentModule,
+    EnemyAgentModule,
   ],
 })
 export class MastraModule {}

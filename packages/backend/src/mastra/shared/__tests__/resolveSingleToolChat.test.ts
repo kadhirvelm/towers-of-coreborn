@@ -126,6 +126,55 @@ describe("resolveSingleToolChat", () => {
     );
   });
 
+  test("requires supporting tools to complete successfully", () => {
+    const error = catchError(() =>
+      resolveSingleToolChat({
+        outputLabel: "Example generation",
+        readToolOutput: () => "unused",
+        result: chatResult({
+          toolResults: [
+            {
+              result: { saved: true },
+              toolCallId: "call-1",
+              toolName: TOOL_ID,
+            },
+          ],
+        }),
+        supportingToolIds: ["consult-productnow"],
+        toolId: TOOL_ID,
+      }),
+    );
+
+    expect(error instanceof Error ? error.message : "").toContain(
+      "without calling consult-productnow",
+    );
+  });
+
+  test("accepts successful supporting tools", () => {
+    const resolved = resolveSingleToolChat({
+      outputLabel: "Example generation",
+      readToolOutput: (raw) => raw as { saved: boolean },
+      result: chatResult({
+        toolResults: [
+          {
+            result: { answer: "Lore" },
+            toolCallId: "lore-1",
+            toolName: "consult-productnow",
+          },
+          {
+            result: { saved: true },
+            toolCallId: "call-1",
+            toolName: TOOL_ID,
+          },
+        ],
+      }),
+      supportingToolIds: ["consult-productnow"],
+      toolId: TOOL_ID,
+    });
+
+    expect(resolved.toolOutput).toEqual({ saved: true });
+  });
+
   test("lets the caller's reader reject a malformed tool result", () => {
     const error = catchError(() =>
       resolveSingleToolChat({

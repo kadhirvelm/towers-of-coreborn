@@ -1,8 +1,12 @@
-import type {
-  PlayableCardChainKind,
-  PlayableCardKind,
-} from "@towers-of-coreborn/api";
+import type { PlayableCardKind } from "@towers-of-coreborn/api";
 import type { ImageGenerationConfig } from "src/model/types/modelRequestTypes";
+
+export {
+  isPlayableCardChainKind,
+  isPlayableCardKind,
+  PLAYABLE_CARD_CHAIN_KINDS,
+  PLAYABLE_CARD_KINDS,
+} from "@towers-of-coreborn/api";
 
 /**
  * ProductNow document "Lore" in the Card game thing folder.
@@ -48,13 +52,6 @@ export const PLAYABLE_CARD_EFFECT_AMOUNTS: Record<
   draw: { max: 2, min: 1 },
 };
 
-export const PLAYABLE_CARD_CHAIN_KINDS: readonly PlayableCardChainKind[] = [
-  "attack",
-  "defend",
-  "draw",
-  "aether",
-];
-
 /** Words that would smuggle a status effect into rules text. */
 export const PLAYABLE_CARD_STATUS_WORDS = [
   "bleed",
@@ -65,27 +62,3 @@ export const PLAYABLE_CARD_STATUS_WORDS = [
   "stun",
   "vulnerable",
 ] as const;
-
-/**
- * @param value - Candidate rules category
- * @returns Whether the value is one of the five combat toolkit kinds
- */
-export function isPlayableCardKind(value: unknown): value is PlayableCardKind {
-  return (
-    value === "attack" ||
-    value === "defend" ||
-    value === "draw" ||
-    value === "aether" ||
-    value === "combo"
-  );
-}
-
-/**
- * @param value - Candidate chain target
- * @returns Whether a combo effect can chain from this kind
- */
-export function isPlayableCardChainKind(
-  value: unknown,
-): value is PlayableCardChainKind {
-  return PLAYABLE_CARD_CHAIN_KINDS.some((kind) => kind === value);
-}

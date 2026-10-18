@@ -3,6 +3,7 @@ import {
   type DungeonServiceApi,
   DungeonServiceDefinition,
 } from "@towers-of-coreborn/api";
+import { ASSET_CLASS_GENERATION_TIMEOUT_MS } from "src/asset-classes/shared/createAssetClassController";
 import {
   getDecorator,
   type ServiceControllerInterface,
@@ -12,10 +13,7 @@ import { TimeoutInterceptor } from "src/library/timeout/timeout.interceptor";
 import { requireActiveProductNowSession } from "src/product-now-mcp/productNowSessionContext";
 import { DungeonService } from "./dungeon.service";
 
-/** Maximum HTTP lifetime for a multi-asset dungeon generation. */
-const DUNGEON_GENERATION_TIMEOUT_MS = 60 * 60 * 1000;
-
-/** REST entry point for the dungeon meta-coordinator. */
+/** REST entry point for dungeon packages. */
 @UseInterceptors(TimeoutInterceptor)
 @Controller(DungeonServiceDefinition.controller)
 export class DungeonController
@@ -24,8 +22,18 @@ export class DungeonController
   public constructor(private readonly dungeonService: DungeonService) {}
 
   /**
-   * Stops the parent coordinator and its active child generation.
-   * @param payload - Parent generation id
+   * Links an existing asset into a dungeon package.
+   * @param payload - Package, slot, and asset id
+   * @returns The updated package
+   */
+  @getDecorator(DungeonServiceDefinition.endpoints.associate)
+  public associate(@Body() payload: DungeonServiceApi["associate"]["payload"]) {
+    return this.dungeonService.associate(payload);
+  }
+
+  /**
+   * Stops a planning run or a slot run.
+   * @param payload - Generation id
    * @returns Whether cancellation was recorded
    */
   @getDecorator(DungeonServiceDefinition.endpoints.cancel)
@@ -34,16 +42,48 @@ export class DungeonController
   }
 
   /**
-   * Generates a dungeon asset set using the connected ProductNow session.
+   * Plans a dungeon package from one broad idea.
    * @param payload - Broad dungeon prompt
-   * @returns Backgrounds and characters with their cards
+   * @returns The saved package of prompts
    */
-  @Timeout(DUNGEON_GENERATION_TIMEOUT_MS)
+  @Timeout(ASSET_CLASS_GENERATION_TIMEOUT_MS)
   @getDecorator(DungeonServiceDefinition.endpoints.generate)
   public generate(@Body() payload: DungeonServiceApi["generate"]["payload"]) {
     return this.dungeonService.generate(
       payload,
       requireActiveProductNowSession(),
     );
+  }
+
+  /**
+   * Runs one saved prompt through its asset agent.
+   * @param payload - Package, slot, and generation id
+   * @returns The package after that slot is filled
+   */
+  @Timeout(ASSET_CLASS_GENERATION_TIMEOUT_MS)
+  @getDecorator(DungeonServiceDefinition.endpoints.generateSlot)
+  public generateSlot(
+    @Body() payload: DungeonServiceApi["generateSlot"]["payload"],
+  ) {
+    return this.dungeonService.generateSlot(
+      payload,
+      requireActiveProductNowSession(),
+    );
+  }
+
+  /**
+   * @returns Slot generations that are still running
+   */
+  @getDecorator(DungeonServiceDefinition.endpoints.inflight)
+  public inflight() {
+    return this.dungeonService.listInFlight();
+  }
+
+  /**
+   * @returns Saved dungeon packages, newest first
+   */
+  @getDecorator(DungeonServiceDefinition.endpoints.list)
+  public list() {
+    return this.dungeonService.list();
   }
 }

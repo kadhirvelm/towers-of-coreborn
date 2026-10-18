@@ -2,9 +2,16 @@ import { randomUUID } from "node:crypto";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { Injectable, InternalServerErrorException } from "@nestjs/common";
-import type { PlayableCardLoreSource } from "@towers-of-coreborn/api";
+import type {
+  PlayableCardEffect,
+  PlayableCardLoreSource,
+} from "@towers-of-coreborn/api";
 import { AgentTool } from "@towers-of-coreborn/api";
 import sharp from "sharp";
+import {
+  type CardProgression,
+  renderCardProgressionPrompt,
+} from "src/asset-classes/playable-card/cardProgression";
 import { renderPlayableCardInstructions } from "src/asset-classes/playable-card/playableCardInstructions";
 import {
   PLAYABLE_CARD_AGENT_MAX_STEPS,
@@ -22,7 +29,6 @@ import { readPlayableCardImage } from "src/asset-classes/playable-card/readPlaya
 import type { PlayableCardDraft } from "src/asset-classes/playable-card/validatePlayableCardDraft";
 import { encodeGeneratedImageAsWebp } from "src/asset-classes/shared/encodeGeneratedImageAsWebp";
 import {
-  ASSET_CLASS_COORDINATOR_MODEL,
   type TowersOfCorebornAgentChatResults,
   TowersOfCorebornAgentService,
 } from "src/mastra/shared/towersOfCorebornAgent.service";
@@ -34,11 +40,7 @@ import {
 import { ProductNowMcpService } from "src/product-now-mcp/product-now-mcp.service";
 import { runWithProductNowSession } from "src/product-now-mcp/productNowSessionContext";
 import { GenerationAbortCoordinator } from "../generationAbort.coordinator";
-import {
-  GenerationCancelledException,
-  isGenerationAbort,
-  throwIfAborted,
-} from "../generationCancelled";
+import { throwIfAborted } from "../generationCancelled";
 import type { QueryableAgent } from "../queryableAgent";
 
 const MIN_IMAGE_EDGE_PX = 64;
@@ -61,6 +63,11 @@ export enum CardGeneratorAgentTool {
 export interface CardGeneratorInput {
   /** Client id used to stop this run */
   generationId: string;
+  /**
+   * Set for levels 2 through 4 of a character line. Locks the cost and
+   * effect kinds, and requires higher amounts.
+   */
+  progression?: CardProgression;
   /** What the player asked the card to be about */
   prompt: string;
   /** Browser session that holds the ProductNow OAuth tokens */
@@ -71,8 +78,12 @@ export interface CardGeneratorInput {
  * Result of one card-generator query.
  */
 export interface CardGeneratorResult {
+  /** Aether cost of the saved card */
+  aetherCost: number;
   /** Folder name of the saved card */
   cardId: string;
+  /** Effects of the saved card, in card order */
+  effects: PlayableCardEffect[];
 }
 
 /**
@@ -120,57 +131,48 @@ export class CardGeneratorAgent
    * @throws InternalServerErrorException when research or painting fails
    */
   public async query(input: CardGeneratorInput): Promise<CardGeneratorResult> {
-    const run = await this.generationAbort.begin(input.generationId);
-    const state: PlayableCardResearchState = { loreSources: [] };
-    let imagePaths: string[] = [];
-    try {
-      throwIfAborted(run.signal);
-      const result = await runWithProductNowSession(input.sessionId, () =>
-        this.agents.runChatWithTools({
-          abortSignal: run.signal,
-          agentConfig: {
-            id: "card-generator-agent",
+    return this.generationAbort.run(input.generationId, async (signal) => {
+      const state: PlayableCardResearchState = { loreSources: [] };
+      let imagePaths: string[] = [];
+      try {
+        const result = await runWithProductNowSession(input.sessionId, () =>
+          this.agents.runAssetClassAgentChat({
+            abortSignal: signal,
+            agentId: "card-generator-agent",
+            catalogTools: CardGeneratorAgentTool,
             instructions: renderPlayableCardInstructions(),
             maxSteps: PLAYABLE_CARD_AGENT_MAX_STEPS,
-            model: [{ model: ASSET_CLASS_COORDINATOR_MODEL }],
-            name: "card-generator-agent",
-          },
-          prompt: `Create one playable card from this request:\n${input.prompt}`,
-          tools: {
-            ...this.agents.towersOfCorebornAgentToolRegistry.buildTools(
-              CardGeneratorAgentTool,
-            ),
-            ...createPlayableCardResearchTools({
+            ownedTools: createPlayableCardResearchTools({
               productNow: this.productNowMcpService,
+              progression: input.progression,
               sessionId: input.sessionId,
-              signal: run.signal,
+              signal,
               state,
             }),
-          },
-        }),
-      );
-      imagePaths = result.toolResults.flatMap((call) =>
-        collectImageFilePaths(call.result),
-      );
-      throwIfAborted(run.signal);
-      const painted = readPaintedCard(result, state);
-      const cardId = await this.storeCard({
-        draft: painted.draft,
-        image: painted.image,
-        loreSources: state.loreSources,
-        prompt: input.prompt,
-        signal: run.signal,
-      });
-      return { cardId };
-    } catch (error) {
-      if (isGenerationAbort(error, run.signal)) {
-        throw new GenerationCancelledException();
+            prompt: renderCardRequest(input.prompt, input.progression),
+          }),
+        );
+        imagePaths = result.toolResults.flatMap((call) =>
+          collectImageFilePaths(call.result),
+        );
+        throwIfAborted(signal);
+        const painted = readPaintedCard(result, state);
+        const cardId = await this.storeCard({
+          draft: painted.draft,
+          image: painted.image,
+          loreSources: state.loreSources,
+          prompt: input.prompt,
+          signal,
+        });
+        return {
+          aetherCost: painted.draft.aetherCost,
+          cardId,
+          effects: painted.draft.effects,
+        };
+      } finally {
+        await deleteImageFiles(imagePaths);
       }
-      throw error;
-    } finally {
-      await deleteImageFiles(imagePaths);
-      await run.end();
-    }
+    });
   }
 
   /**
@@ -223,6 +225,7 @@ function readPaintedCard(
 ): { draft: PlayableCardDraft; image: GeneratedImage } {
   const failedTool = result.toolErrors.find(
     (error) =>
+      error.toolName === AgentTool.ConsultProductNow ||
       error.toolName === AgentTool.GenerateImage ||
       error.toolName === SEARCH_LORE_TOOL_ID ||
       error.toolName === SUBMIT_PLAYABLE_CARD_TOOL_ID,
@@ -233,9 +236,18 @@ function readPaintedCard(
     );
   }
 
+  const loreCall = result.toolResults.find(
+    (call) => call.toolName === AgentTool.ConsultProductNow,
+  );
+  if (loreCall === undefined) {
+    throw new InternalServerErrorException(
+      "Playable card generation failed: the agent finished without consulting ProductNow.",
+    );
+  }
+
   if (state.draft === undefined || state.loreSources.length === 0) {
     throw new InternalServerErrorException(
-      "Playable card generation did not submit a Lore-backed card.",
+      `Playable card generation did not submit a Lore-backed card.${describeMissingCard(result, state)}`,
     );
   }
 
@@ -252,6 +264,32 @@ function readPaintedCard(
     draft: state.draft,
     image: readPlayableCardImage(imageCall.result),
   };
+}
+
+/**
+ * Explains why a run ended without an accepted card.
+ * @param result - Tool calls and closing text from the agent run
+ * @param state - Passages and rejections the research tools recorded
+ * @returns A suffix naming the last rejection, missing passages, or the agent's text
+ */
+function describeMissingCard(
+  result: TowersOfCorebornAgentChatResults,
+  state: PlayableCardResearchState,
+): string {
+  const submissions = result.toolResults.filter(
+    (call) => call.toolName === SUBMIT_PLAYABLE_CARD_TOOL_ID,
+  ).length;
+  const details = [
+    `${submissions} submission(s), ${state.loreSources.length} Lore passage(s).`,
+  ];
+  if (state.lastRejection !== undefined) {
+    details.push(`Last rejection: ${state.lastRejection}`);
+  }
+  const text = result.text.trim();
+  if (text !== "") {
+    details.push(`Agent said: "${text.slice(0, 300)}"`);
+  }
+  return ` ${details.join(" ")}`;
 }
 
 /**
@@ -310,4 +348,20 @@ async function writeManifest(params: {
     join(params.directory, PLAYABLE_CARD_MANIFEST_FILE_NAME),
     JSON.stringify(manifest, null, 2),
   );
+}
+
+/**
+ * @param prompt - The caller's card request
+ * @param progression - Locked line for a later level, when this card continues one
+ * @returns The user prompt sent to the card-generator agent
+ */
+function renderCardRequest(
+  prompt: string,
+  progression: CardProgression | undefined,
+): string {
+  const request = `Create one playable card from this request:\n${prompt}`;
+  if (progression === undefined) {
+    return request;
+  }
+  return `${request}\n\n${renderCardProgressionPrompt(progression)}`;
 }

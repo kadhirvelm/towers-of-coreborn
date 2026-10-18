@@ -4,6 +4,7 @@ import type { ListBattleBackgroundsResponse } from "@towers-of-coreborn/api";
 import { useState } from "react";
 import { Dialog, Flex } from "@/lib/radix";
 import styles from "./Assets.module.scss";
+import { CopyableError } from "./CopyableError";
 import { type PendingJob, PendingJobCard } from "./PendingJobCard";
 
 type BattleBackground = ListBattleBackgroundsResponse["backgrounds"][number];
@@ -46,7 +47,7 @@ export function BattleBackgroundList({
           <span className={styles.loadingText}>Loading backgrounds…</span>
         </Flex>
       )}
-      {error != null && <span className={styles.errorText}>{error}</span>}
+      {error != null && <CopyableError message={error} />}
       {!isLoading &&
         pendingJobs.length === 0 &&
         result != null &&

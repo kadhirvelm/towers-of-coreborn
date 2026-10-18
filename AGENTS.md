@@ -50,11 +50,22 @@ that package directory.
 - Agents: `packages/backend/src/mastra/agents/<name>/`. Each agent is a Nest
   service with a `query` method. Asset classes call `query`; they do not
   construct Mastra agents themselves. `battle-background` paints battle rooms,
-  `card-character` paints four-level portraits, and `card-generator` writes one
+  `card-character` paints four-level portraits, `enemy` paints one
+  creature facing the player and stores a repeating attack and defend cycle,
+  and `card-generator` writes one
   lore-backed playable card. `dungeon-coordinator` accepts one broad setup
-  prompt and calls those three agents through request-scoped tools, returning
-  backgrounds and characters grouped with their cards. The Blueprint Workshop
-  exposes that coordinator as the Dungeons tab. Painting goes through the shared
+  prompt and writes a dungeon package: two room prompts, three character
+  prompts, four card prompts for each character, and two enemy prompts. It
+  does not paint those assets. The package is a JSON file under the public
+  dungeon assets. In the Blueprint Workshop, each prompt can start that
+  asset's agent, and an existing asset can be attached to a slot. A later
+  card keeps the previous level's aether cost and effect kinds. Running slot
+  generations are stored in Redis so a refresh keeps them on the dungeon tab
+  and on the asset's own tab. `DungeonBlueprintStore` owns package files,
+  locking, and API hydration; `DungeonSlotGenerator` owns slot-to-agent
+  dispatch. Agent queries run through `GenerationAbortCoordinator.run` so
+  distributed cancellation and cleanup have one lifecycle. Painting goes
+  through the shared
   `generate-image` tool. The agent's instructions carry the art direction, and the agent passes
   that direction in the tool call. Asset classes do not call image providers
   themselves. `consult-productnow` is a registry tool that runs a research

@@ -16,20 +16,20 @@ export interface BattleAssetRequest {
 
 /**
  * Texture key for one card illustration.
- * @param index - Hand index, starting at 0 on the left
+ * @param cardId - Loadout id, stable when the card moves between deck and hand
  * @returns Cache key unique to that card's image
  */
-export function cardImageKey(index: number): string {
-  return `battle-card-image-${index}`;
+export function cardImageKey(cardId: string): string {
+  return `battle-card-image-${cardId}`;
 }
 
 /**
  * Cache key for one card's `manifest.json`.
- * @param index - Hand index, starting at 0 on the left
+ * @param cardId - Loadout id
  * @returns Cache key unique to that card's rules file
  */
-export function cardManifestKey(index: number): string {
-  return `battle-card-manifest-${index}`;
+export function cardManifestKey(cardId: string): string {
+  return `battle-card-manifest-${cardId}`;
 }
 
 /**
@@ -37,7 +37,7 @@ export function cardManifestKey(index: number): string {
  * Blank URLs are skipped, so an empty loadout queues nothing.
  * @param loadout - Hardcoded battle assets
  * @param backendOrigin - Backend origin used to resolve `/static/...` paths
- * @returns Loader requests in player, enemy, then hand order
+ * @returns Loader requests in player, enemy, hand, then deck order
  */
 export function listBattleAssetRequests(
   loadout: BattleLoadout,
@@ -47,10 +47,15 @@ export function listBattleAssetRequests(
   pushImage(requests, PLAYER_IMAGE_KEY, loadout.player.imageUrl, backendOrigin);
   pushImage(requests, ENEMY_IMAGE_KEY, loadout.enemy.imageUrl, backendOrigin);
 
-  loadout.cards.forEach((card, index) => {
-    pushImage(requests, cardImageKey(index), card.imageUrl, backendOrigin);
-    pushJson(requests, cardManifestKey(index), card.manifestUrl, backendOrigin);
-  });
+  for (const card of [...loadout.cards, ...loadout.deck]) {
+    pushImage(requests, cardImageKey(card.id), card.imageUrl, backendOrigin);
+    pushJson(
+      requests,
+      cardManifestKey(card.id),
+      card.manifestUrl,
+      backendOrigin,
+    );
+  }
 
   return requests;
 }

@@ -58,6 +58,20 @@ describe("layoutBattle", () => {
 
     expect(points.every((value) => Number.isFinite(value))).toBe(true);
   });
+
+  test("uses the hit points and hand passed in", () => {
+    const layout = layoutBattle(1280, 800, {
+      enemyHitPoints: 10,
+      hand: ["Strike"],
+      playerHitPoints: 20,
+    });
+    const player = layout.actors.find((actor) => actor.side === "player");
+    const enemy = layout.actors.find((actor) => actor.side === "enemy");
+
+    expect(layout.cards.map((card) => card.label)).toEqual(["Strike"]);
+    expect(player?.hitPoints).toBe(20);
+    expect(enemy?.hitPoints).toBe(10);
+  });
 });
 
 describe("layoutActorPortrait", () => {

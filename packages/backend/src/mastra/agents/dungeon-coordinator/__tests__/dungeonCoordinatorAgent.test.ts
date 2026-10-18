@@ -1,66 +1,39 @@
 import { describe, expect, mock, test } from "bun:test";
 import type { ToolsInput } from "@mastra/core/agent";
+import { AgentTool } from "@towers-of-coreborn/api";
 import { GenerationAbortCoordinator } from "../../generationAbort.coordinator";
 import {
-  CREATE_DUNGEON_BACKGROUND_TOOL_ID,
-  CREATE_DUNGEON_CARD_TOOL_ID,
-  CREATE_DUNGEON_CHARACTER_TOOL_ID,
   DungeonCoordinatorAgent,
+  PLAN_DUNGEON_BACKGROUND_TOOL_ID,
+  PLAN_DUNGEON_CARD_TOOL_ID,
+  PLAN_DUNGEON_CHARACTER_TOOL_ID,
+  PLAN_DUNGEON_ENEMY_TOOL_ID,
 } from "../dungeonCoordinatorAgent";
 
 const GENERATION_ID = "4f1c0b2e-6a7d-4c8e-9f10-123456789abc";
 
 describe("DungeonCoordinatorAgent", () => {
-  test("delegates connected assets to the existing agents", async () => {
-    const backgroundQuery = mock(async () => ({
-      id: "room-1",
-      summary: "room",
-    }));
-    const characterQuery = mock(async () => ({
-      setId: "hero-1",
-      summary: "hero",
-    }));
-    const cardQuery = mock(
-      async (_input: {
-        generationId: string;
-        prompt: string;
-        sessionId: string;
-      }) => ({ cardId: "card-1" }),
-    );
+  test("records prompts and does not create assets", async () => {
     const runChatWithTools = mock(
-      async (input: { timeoutMs?: number; tools: ToolsInput }) => {
-        const background = await executeTool(
-          input.tools,
-          CREATE_DUNGEON_BACKGROUND_TOOL_ID,
-          { prompt: "The flooded bell chamber" },
-        );
-        const character = await executeTool(
-          input.tools,
-          CREATE_DUNGEON_CHARACTER_TOOL_ID,
-          { prompt: "Mara, keeper of the drowned bells" },
-        );
-        if (character.characterSetId === undefined) {
-          throw new Error("Character tool did not return an id.");
-        }
-        await executeTool(input.tools, CREATE_DUNGEON_CARD_TOOL_ID, {
-          characterSetId: character.characterSetId,
-          prompt: "Swing the cracked bell clapper",
-        });
-
-        expect(background.backgroundId).toBe("room-1");
-        expect(input.timeoutMs).toBe(60 * 60 * 1000);
+      async (input: {
+        agentConfig: { maxSteps?: number; toolCallConcurrency?: number };
+        timeoutMs?: number;
+        tools: ToolsInput;
+      }) => {
+        await planFullDungeon(input.tools);
+        expect(input.tools[AgentTool.ConsultProductNow]).toBeDefined();
+        expect(input.timeoutMs).toBe(10 * 60 * 1000);
+        expect(input.agentConfig.maxSteps).toBe(26);
+        expect(input.agentConfig.toolCallConcurrency).toBe(1);
         return {
-          text: "A drowned belfry dungeon.",
+          text: "A drowned belfry.",
           toolErrors: [],
           toolResults: [],
         };
       },
     );
     const agent = new DungeonCoordinatorAgent(
-      { runChatWithTools } as never,
-      { abort: async () => true, query: backgroundQuery } as never,
-      { abort: async () => true, query: characterQuery } as never,
-      { abort: async () => true, query: cardQuery } as never,
+      agentService(runChatWithTools) as never,
       idleAbort() as never,
     );
 
@@ -70,46 +43,42 @@ describe("DungeonCoordinatorAgent", () => {
       sessionId: "session-1",
     });
 
-    expect(result).toEqual({
-      backgroundIds: ["room-1"],
-      characters: [{ cardIds: ["card-1"], setId: "hero-1" }],
-      summary: "A drowned belfry dungeon.",
-    });
-    expect(backgroundQuery).toHaveBeenCalledTimes(1);
-    expect(characterQuery).toHaveBeenCalledTimes(1);
-    expect(cardQuery).toHaveBeenCalledTimes(1);
-    expect(cardQuery.mock.calls[0]?.[0]).toEqual({
-      generationId: expect.any(String),
-      prompt:
-        "Character:\nMara, keeper of the drowned bells\n\nCard request:\nSwing the cracked bell clapper",
-      sessionId: "session-1",
-    });
+    expect(result.summary).toBe("A drowned belfry.");
+    expect(
+      result.slots.filter((slot) => slot.kind === "battle-background"),
+    ).toHaveLength(2);
+    expect(
+      result.slots.filter((slot) => slot.kind === "card-character"),
+    ).toHaveLength(3);
+    expect(result.slots.filter((slot) => slot.kind === "enemy")).toHaveLength(
+      2,
+    );
+    const cards = result.slots.filter((slot) => slot.kind === "playable-card");
+    expect(cards).toHaveLength(12);
+    const firstCharacter = result.slots.find(
+      (slot) => slot.kind === "card-character",
+    );
+    const line = cards.filter(
+      (slot) => slot.characterSlotId === firstCharacter?.id,
+    );
+    expect(line.map((slot) => slot.level)).toEqual([1, 2, 3, 4]);
+    expect(line[0]?.prompt).toContain("signature bell");
   });
 
-  test("rejects a setup when a character has no card", async () => {
+  test("rejects a plan when the fixed prompt counts are incomplete", async () => {
     const runChatWithTools = mock(async (input: { tools: ToolsInput }) => {
-      await executeTool(input.tools, CREATE_DUNGEON_BACKGROUND_TOOL_ID, {
-        prompt: "A room",
+      await executeTool(input.tools, PLAN_DUNGEON_BACKGROUND_TOOL_ID, {
+        prompt: "A flooded chamber",
+        title: "Chamber",
       });
-      await executeTool(input.tools, CREATE_DUNGEON_CHARACTER_TOOL_ID, {
-        prompt: "A guardian",
+      await executeTool(input.tools, PLAN_DUNGEON_CHARACTER_TOOL_ID, {
+        prompt: "A bell warden",
+        title: "Warden",
       });
       return { text: "Incomplete", toolErrors: [], toolResults: [] };
     });
     const agent = new DungeonCoordinatorAgent(
-      { runChatWithTools } as never,
-      {
-        abort: async () => true,
-        query: async () => ({ id: "room-1", summary: "" }),
-      } as never,
-      {
-        abort: async () => true,
-        query: async () => ({ setId: "hero-1", summary: "" }),
-      } as never,
-      {
-        abort: async () => true,
-        query: async () => ({ cardId: "unused" }),
-      } as never,
+      agentService(runChatWithTools) as never,
       idleAbort() as never,
     );
 
@@ -125,15 +94,104 @@ describe("DungeonCoordinatorAgent", () => {
       );
 
     expect(error instanceof Error).toBe(true);
-    expect((error as Error).message).toContain(
-      "at least one card for every character",
+    expect((error as Error).message).toContain("exactly 2 backgrounds");
+  });
+
+  test("returns the prompts when the coordinator stream fails after they are recorded", async () => {
+    const runChatWithTools = mock(async (input: { tools: ToolsInput }) => {
+      await planFullDungeon(input.tools);
+      throw new Error(
+        "Agent dungeon-coordinator-agent stream failed: finish reason error",
+      );
+    });
+    const agent = new DungeonCoordinatorAgent(
+      agentService(runChatWithTools) as never,
+      idleAbort() as never,
     );
+
+    const result = await agent.query({
+      generationId: GENERATION_ID,
+      prompt: "A dungeon in a drowned bell tower",
+      sessionId: "session-1",
+    });
+
+    expect(result.slots).toHaveLength(19);
+    expect(result.summary).toBe("The dungeon prompts are ready.");
   });
 });
 
 /**
+ * @param runChatWithTools - Stand-in for the agent runner
+ * @returns The slice of the agent service the planner calls
+ */
+function agentService(
+  runChatWithTools: (input: {
+    agentConfig: { maxSteps?: number; toolCallConcurrency?: number };
+    timeoutMs?: number;
+    tools: ToolsInput;
+  }) => Promise<unknown>,
+) {
+  return {
+    runAssetClassAgentChat: (input: {
+      maxSteps: number;
+      ownedTools?: ToolsInput;
+      timeoutMs?: number;
+      toolCallConcurrency?: number;
+    }) =>
+      runChatWithTools({
+        agentConfig: {
+          maxSteps: input.maxSteps,
+          toolCallConcurrency: input.toolCallConcurrency,
+        },
+        timeoutMs: input.timeoutMs,
+        tools: {
+          [AgentTool.ConsultProductNow]: { id: AgentTool.ConsultProductNow },
+          ...(input.ownedTools ?? {}),
+        },
+      }),
+  };
+}
+
+/**
+ * Records every prompt a complete dungeon package needs.
+ * @param tools - Tools supplied to the planner
+ */
+async function planFullDungeon(tools: ToolsInput): Promise<void> {
+  for (const title of ["Bell chamber", "Bell crown"]) {
+    await executeTool(tools, PLAN_DUNGEON_BACKGROUND_TOOL_ID, {
+      prompt: `Paint ${title}`,
+      title,
+    });
+  }
+  const characterIds: string[] = [];
+  for (const title of ["Mara", "Dorn", "Isha"]) {
+    const character = await executeTool(tools, PLAN_DUNGEON_CHARACTER_TOOL_ID, {
+      prompt: `${title} keeps the bells`,
+      title,
+    });
+    characterIds.push(character.characterSlotId ?? "");
+  }
+  for (const characterSlotId of characterIds) {
+    for (let level = 1; level <= 4; level += 1) {
+      await executeTool(tools, PLAN_DUNGEON_CARD_TOOL_ID, {
+        characterSlotId,
+        level,
+        prompt: "A signature bell technique",
+        title: `Bell ${level}`,
+      });
+    }
+  }
+  for (const title of ["Moss bell", "Drowned echo"]) {
+    await executeTool(tools, PLAN_DUNGEON_ENEMY_TOOL_ID, {
+      prompt: `${title} hunts in the tower`,
+      title,
+    });
+  }
+}
+
+/**
  * Executes one request-scoped Mastra tool in a unit test.
- * @param tools - Tools supplied to the coordinator
+ * @param tools - Tools supplied to the planner
  * @param id - Tool id
  * @param input - Tool payload
  * @returns Tool result
@@ -141,10 +199,10 @@ describe("DungeonCoordinatorAgent", () => {
 async function executeTool(
   tools: ToolsInput,
   id: string,
-  input: Record<string, string>,
+  input: Record<string, string | number>,
 ): Promise<Record<string, string>> {
   const tool = tools[id] as {
-    execute?: (payload: Record<string, string>) => Promise<unknown>;
+    execute?: (payload: Record<string, string | number>) => Promise<unknown>;
   };
   if (tool.execute === undefined) {
     throw new Error(`Tool ${id} has no execute function.`);
@@ -155,12 +213,10 @@ async function executeTool(
 /**
  * @returns An abort coordinator that never cancels
  */
-function idleAbort(): Pick<GenerationAbortCoordinator, "begin" | "stop"> {
+function idleAbort(): Pick<GenerationAbortCoordinator, "run" | "stop"> {
   return {
-    begin: async () => ({
-      end: async () => undefined,
-      signal: new AbortController().signal,
-    }),
+    run: async (_generationId, operation) =>
+      operation(new AbortController().signal),
     stop: async () => true,
   };
 }

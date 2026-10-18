@@ -9,6 +9,7 @@ import type {
  * @property outputLabel - Human-readable name used in error messages
  * @property readToolOutput - Narrows the tool's raw result; throw when the shape is wrong
  * @property result - Text, tool results, and tool errors observed during the run
+ * @property supportingToolIds - Other tools that must complete successfully
  * @property toolId - Tool the agent was required to call
  */
 export interface ResolveSingleToolChatInput<ToolOutput> {
@@ -18,6 +19,7 @@ export interface ResolveSingleToolChatInput<ToolOutput> {
     TowersOfCorebornAgentChatResults,
     "text" | "toolErrors" | "toolResults"
   >;
+  supportingToolIds?: string[];
   toolId: string;
 }
 
@@ -32,6 +34,10 @@ export interface ResolveSingleToolChatInput<ToolOutput> {
 export function resolveSingleToolChat<ToolOutput>(
   input: ResolveSingleToolChatInput<ToolOutput>,
 ): TowersOfCorebornAgentSingleToolChatResult<ToolOutput> {
+  for (const supportingToolId of input.supportingToolIds ?? []) {
+    requireSuccessfulTool(input, supportingToolId);
+  }
+
   const toolError = input.result.toolErrors.find(
     (error) => error.toolName === input.toolId,
   );
@@ -54,6 +60,33 @@ export function resolveSingleToolChat<ToolOutput>(
     text: input.result.text,
     toolOutput: input.readToolOutput(toolResult.result),
   };
+}
+
+/**
+ * Requires a supporting tool to have returned without an earlier error.
+ * @param input - Finished agent run and its human-readable output label
+ * @param toolId - Supporting tool that must have completed
+ */
+function requireSuccessfulTool<ToolOutput>(
+  input: ResolveSingleToolChatInput<ToolOutput>,
+  toolId: string,
+): void {
+  const toolError = input.result.toolErrors.find(
+    (error) => error.toolName === toolId,
+  );
+  if (toolError !== undefined) {
+    throw new InternalServerErrorException(
+      `${input.outputLabel} failed in ${toolId}: ${toolError.errorMessage}`,
+    );
+  }
+  const toolResult = input.result.toolResults.find(
+    (result) => result.toolName === toolId,
+  );
+  if (toolResult === undefined) {
+    throw new InternalServerErrorException(
+      `${input.outputLabel} failed: the agent finished without calling ${toolId}.${describeAgentText(input.result.text)}`,
+    );
+  }
 }
 
 /**

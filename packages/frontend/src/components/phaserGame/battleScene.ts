@@ -1,13 +1,24 @@
+import type { PlayableCardRules } from "@towers-of-coreborn/api";
 import type Phaser from "phaser";
 import {
-  cardImageKey,
   cardManifestKey,
   ENEMY_IMAGE_KEY,
   listBattleAssetRequests,
   PLAYER_IMAGE_KEY,
 } from "./battleAssetRequests";
 import {
+  type BattleCard,
+  type BattleCombatState,
+  battleOutcome,
+  createBattleCombatState,
+  type PlayedCardConsequences,
+  playBattleCard,
+  toBattleCard,
+} from "./battleCombat";
+import {
   type ActorSlot,
+  type BattleLayout,
+  type BattleLayoutSnapshot,
   type CardSlot,
   layoutActorPortrait,
   layoutBattle,
@@ -18,7 +29,6 @@ import { BATTLE_LOADOUT } from "./battleLoadout";
 import { approach, CARD_HOVER_SETTLE_MS, cardHoverMotion } from "./cardHover";
 import { containedScale } from "./containedScale";
 import {
-  type BattleCardRules,
   formatBattleCardRules,
   parsePlayableCardManifest,
 } from "./parsePlayableCardManifest";
@@ -36,6 +46,7 @@ const HOVER_DEPTH = 100;
 type PhaserRuntime = typeof import("phaser");
 
 type HandCard = {
+  cardId: string;
   container: Phaser.GameObjects.Container;
   height: number;
   hit: Phaser.Geom.Rectangle;
@@ -52,12 +63,12 @@ type HandCard = {
 /**
  * How many caption lines to reserve for a card.
  * Effect text can wrap, so each effect gets two lines.
- * @param rules - Parsed manifest, when one loaded
+ * @param rules - Rules for this card, when it has any
  * @param hasArt - Whether the card illustration is in the texture cache
  * @returns Line count for `layoutCardPanels`. Zero means the card has no caption
  */
 function captionLineCount(
-  rules: BattleCardRules | undefined,
+  rules: PlayableCardRules | undefined,
   hasArt: boolean,
 ): number {
   if (rules) {
@@ -81,10 +92,12 @@ export function createBattleSceneClass(
 ): new () => Phaser.Scene {
   return class BattleScene extends Phaser.Scene {
     private art!: Phaser.GameObjects.Container;
-    private cardRules: Array<BattleCardRules | undefined> = [];
+    private combat!: BattleCombatState;
     private field!: Phaser.GameObjects.Graphics;
+    private floaters!: Phaser.GameObjects.Container;
     private hand: HandCard[] = [];
     private labels!: Phaser.GameObjects.Container;
+    private notice = "";
 
     public constructor() {
       super({ key: "BattleScene" });
@@ -109,10 +122,11 @@ export function createBattleSceneClass(
      * Creates the drawing layers and redraws whenever the canvas resizes.
      */
     public create(): void {
-      this.cardRules = this.readCardRules();
+      this.combat = this.createCombat();
       this.field = this.add.graphics();
       this.art = this.add.container(0, 0);
       this.labels = this.add.container(0, 0);
+      this.floaters = this.add.container(0, 0);
       this.scale.on("resize", this.draw, this);
       this.events.once("shutdown", () => {
         this.load.off("loaderror", this.onAssetLoadError);
@@ -162,27 +176,62 @@ export function createBattleSceneClass(
     };
 
     /**
-     * Reads each queued manifest out of the JSON cache.
-     * @returns Rules aligned with the hand, or `undefined` for a missing file
+     * Builds the opening hand and deck. A loaded manifest replaces inline rules.
+     * @returns Combat state before any card has been played
      */
-    private readCardRules(): Array<BattleCardRules | undefined> {
-      return BATTLE_LOADOUT.cards.map((_, index) => {
-        const key = cardManifestKey(index);
-        if (!this.cache.json.exists(key)) {
-          return undefined;
-        }
-        return parsePlayableCardManifest(this.cache.json.get(key));
+    private createCombat(): BattleCombatState {
+      return createBattleCombatState({
+        aether: BATTLE_LOADOUT.player.aether,
+        deck: BATTLE_LOADOUT.deck.map((card) =>
+          toBattleCard(card, this.readManifest(card.id)),
+        ),
+        enemyAttack: BATTLE_LOADOUT.enemy.attack,
+        enemyHitPoints: BATTLE_LOADOUT.enemy.hitPoints,
+        enemyMaxHitPoints: BATTLE_LOADOUT.enemy.maxHitPoints,
+        hand: BATTLE_LOADOUT.cards.map((card) =>
+          toBattleCard(card, this.readManifest(card.id)),
+        ),
+        playerHitPoints: BATTLE_LOADOUT.player.hitPoints,
+        playerMaxHitPoints: BATTLE_LOADOUT.player.maxHitPoints,
       });
+    }
+
+    /**
+     * @param cardId - Loadout id whose manifest was queued
+     * @returns Parsed rules, or `undefined` when the file is missing or invalid
+     */
+    private readManifest(cardId: string): PlayableCardRules | undefined {
+      const key = cardManifestKey(cardId);
+      if (!this.cache.json.exists(key)) {
+        return undefined;
+      }
+      return parsePlayableCardManifest(this.cache.json.get(key));
+    }
+
+    /**
+     * @returns The hit points and hand labels the layout should draw
+     */
+    private layoutSnapshot(): BattleLayoutSnapshot {
+      return {
+        enemyHitPoints: this.combat.enemy.hitPoints,
+        hand: this.combat.hand.map((card) => card.rules.name),
+        playerHitPoints: this.combat.player.hitPoints,
+      };
     }
 
     /**
      * Clears and repaints actors and cards for the current canvas size.
      */
     private readonly draw = (): void => {
-      const layout = layoutBattle(this.scale.width, this.scale.height);
+      const layout = layoutBattle(
+        this.scale.width,
+        this.scale.height,
+        this.layoutSnapshot(),
+      );
       this.field.clear();
       this.art.removeAll(true);
       this.labels.removeAll(true);
+      this.floaters.removeAll(true);
       this.clearHand();
 
       this.field.fillStyle(FIELD_COLOR, 1);
@@ -195,7 +244,178 @@ export function createBattleSceneClass(
         this.drawCardShadow(card);
         this.hand.push(this.createHandCard(card));
       }
+      this.drawHud(layout);
     };
+
+    /**
+     * Plays the card under the pointer. Attack damage lands on the enemy only.
+     * @param cardId - Id of the hand card that was clicked
+     */
+    private playCard(cardId: string): void {
+      const result = playBattleCard(this.combat, cardId);
+      if (!result.ok) {
+        this.notice =
+          result.reason === "not-enough-aether" ? "Not enough Aether" : "";
+        if (this.notice !== "") {
+          this.draw();
+        }
+        return;
+      }
+
+      this.combat = result.state;
+      this.notice = "";
+      this.draw();
+      this.showConsequences(result);
+    }
+
+    /**
+     * Draws energy, block, the enemy's strike, the deck count, and the outcome.
+     * @param layout - Slots from the paint that just finished
+     */
+    private drawHud(layout: BattleLayout): void {
+      const player = layout.actors.find((actor) => actor.side === "player");
+      const enemy = layout.actors.find((actor) => actor.side === "enemy");
+      if (player) {
+        this.addLabel(
+          player.x,
+          player.y - player.radius - 22,
+          `Aether ${this.combat.aether}`,
+          18,
+        );
+        const bar = layoutHealthBar(player);
+        this.addLabel(
+          player.x,
+          bar.y + bar.height + 16,
+          `Block ${this.combat.player.block}`,
+          16,
+        );
+      }
+      if (enemy) {
+        this.addLabel(
+          enemy.x,
+          enemy.y - enemy.radius - 22,
+          `Attack ${this.combat.enemyAttack}`,
+          18,
+        );
+      }
+
+      const firstCard = layout.cards[0];
+      const deckY = firstCard
+        ? firstCard.y - firstCard.height / 2 - 18
+        : this.scale.height - 36;
+      this.addLabel(
+        this.scale.width / 2,
+        deckY,
+        `Deck ${this.combat.deck.length}`,
+        16,
+      );
+      if (this.notice !== "") {
+        this.addLabel(this.scale.width / 2, 28, this.notice, 20);
+      }
+
+      const outcome = battleOutcome(this.combat);
+      const outcomeY = player?.y ?? 40;
+      if (outcome === "victory") {
+        this.addLabel(this.scale.width / 2, outcomeY, "Victory", 36);
+      }
+      if (outcome === "defeat") {
+        this.addLabel(this.scale.width / 2, outcomeY, "Defeat", 36);
+      }
+    }
+
+    /**
+     * Shows what the card changed. Attack damage is drawn on the enemy.
+     * @param result - Damage, block, draw, and energy gained by the play
+     */
+    private showConsequences(result: PlayedCardConsequences): void {
+      const layout = layoutBattle(
+        this.scale.width,
+        this.scale.height,
+        this.layoutSnapshot(),
+      );
+      const player = layout.actors.find((actor) => actor.side === "player");
+      const enemy = layout.actors.find((actor) => actor.side === "enemy");
+      if (enemy && result.attackDamage > 0) {
+        this.showFloater(
+          enemy.x,
+          enemy.y - enemy.radius,
+          `-${result.attackDamage}`,
+          "#e5484d",
+        );
+      }
+      if (!player) {
+        return;
+      }
+
+      let offset = 0;
+      if (result.blockGained > 0) {
+        this.showFloater(
+          player.x,
+          player.y - player.radius - offset,
+          `+${result.blockGained} Block`,
+          "#3e63dd",
+        );
+        offset += 28;
+      }
+      if (result.aetherGained > 0) {
+        this.showFloater(
+          player.x,
+          player.y - player.radius - offset,
+          `+${result.aetherGained} Aether`,
+          "#3e63dd",
+        );
+        offset += 28;
+      }
+      if (result.playerDamage > 0) {
+        this.showFloater(
+          player.x,
+          player.y + offset,
+          `-${result.playerDamage}`,
+          "#e5484d",
+        );
+      } else if (result.blocked > 0 && result.blockGained === 0) {
+        this.showFloater(player.x, player.y, "Blocked", "#3e63dd");
+      }
+      if (result.drawn > 0) {
+        this.showFloater(
+          this.scale.width / 2,
+          player.y,
+          `Drew ${result.drawn}`,
+          INK,
+        );
+      }
+    }
+
+    /**
+     * Floats a short combat result above an actor, then drops it.
+     * @param x - Horizontal center
+     * @param y - Starting vertical center
+     * @param text - Result copy
+     * @param color - CSS color
+     */
+    private showFloater(
+      x: number,
+      y: number,
+      text: string,
+      color: string,
+    ): void {
+      const label = this.add.text(x, y, text, {
+        color,
+        fontFamily: "Georgia, serif",
+        fontSize: "28px",
+      });
+      label.setOrigin(0.5);
+      label.setStroke(INK, 4);
+      label.setDepth(200);
+      this.floaters.add(label);
+      this.tweens.add({
+        alpha: 0,
+        duration: 800,
+        onComplete: () => label.destroy(),
+        targets: label,
+        y: y - 42,
+      });
+    }
 
     /**
      * Destroys the current hand before a resize repaint.
@@ -317,9 +537,10 @@ export function createBattleSceneClass(
      */
     private createHandCard(card: CardSlot): HandCard {
       const motion = cardHoverMotion(card.y, card.height);
-      const rules = this.cardRules[card.index];
-      const imageKey = cardImageKey(card.index);
-      const hasArt = this.textures.exists(imageKey);
+      const battleCard = this.combat.hand[card.index];
+      const rules = battleCard?.rules;
+      const imageKey = battleCard?.imageKey ?? "";
+      const hasArt = imageKey !== "" && this.textures.exists(imageKey);
       const left = -card.width / 2;
       const top = -card.height / 2;
       const container = this.add.container(card.x, card.y);
@@ -370,7 +591,11 @@ export function createBattleSceneClass(
         useHandCursor: true,
       });
 
+      const playable = this.canPlay(battleCard);
+      container.setAlpha(playable ? 1 : 0.45);
+
       const handCard: HandCard = {
+        cardId: battleCard?.id ?? "",
         container,
         height: card.height,
         hit,
@@ -384,7 +609,19 @@ export function createBattleSceneClass(
         width: card.width,
       };
       this.bindCardHover(handCard);
+      this.bindCardPlay(handCard);
       return handCard;
+    }
+
+    /**
+     * @param card - Hand card, when this slot has one
+     * @returns Whether the player can spend its cost right now
+     */
+    private canPlay(card: BattleCard | undefined): boolean {
+      if (card === undefined || battleOutcome(this.combat) !== undefined) {
+        return false;
+      }
+      return this.combat.aether >= card.rules.aetherCost;
     }
 
     /**
@@ -406,6 +643,19 @@ export function createBattleSceneClass(
         card.hit.setTo(left, top, card.width, card.height);
         card.targetScale = 1;
         card.targetY = card.restY;
+      });
+    }
+
+    /**
+     * Plays the card on click.
+     * @param card - Card to bind
+     */
+    private bindCardPlay(card: HandCard): void {
+      if (card.cardId === "") {
+        return;
+      }
+      card.container.on("pointerdown", () => {
+        this.playCard(card.cardId);
       });
     }
 

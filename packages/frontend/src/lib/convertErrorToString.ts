@@ -24,6 +24,10 @@ export function convertErrorToString(error: any): string {
   }
 
   if (error instanceof Object) {
+    const message = (error as { message?: unknown }).message;
+    if (typeof message === "string" && message !== "") {
+      return message;
+    }
     return getOwnProperties(error);
   }
 

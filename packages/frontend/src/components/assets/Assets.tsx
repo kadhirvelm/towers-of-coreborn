@@ -18,11 +18,15 @@ export function Assets() {
   const [activeClassId, setActiveClassId] = useState(ASSET_CLASSES[0]?.id);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const {
+    associateDungeonSlot,
     dismissJob,
+    getDungeonSlotJobs,
     getJobsForClass,
     getRefreshKey,
     getResultsForClass,
+    startDungeonSlot,
     startJob,
+    stopDungeonSlot,
     stopJob,
   } = useAssetGenerationJobs();
 
@@ -84,11 +88,15 @@ export function Assets() {
 
       <Gallery
         key={activeClass.id}
+        onAssociateDungeonSlot={associateDungeonSlot}
         onDismissJob={dismissJob}
+        onGenerateDungeonSlot={startDungeonSlot}
+        onStopDungeonSlot={stopDungeonSlot}
         onStopJob={(jobId) => stopJob(activeClass, jobId)}
         pendingJobs={activeJobs}
         refreshKey={getRefreshKey(activeClass.id)}
         results={getResultsForClass(activeClass.id)}
+        slotJobs={getDungeonSlotJobs()}
       />
     </Flex>
   );

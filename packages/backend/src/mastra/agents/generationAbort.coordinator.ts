@@ -1,5 +1,10 @@
 import { Injectable, OnModuleDestroy, OnModuleInit } from "@nestjs/common";
 import { RedisService } from "src/infra/redis/redis.service";
+import {
+  GenerationCancelledException,
+  isGenerationAbort,
+  throwIfAborted,
+} from "./generationCancelled";
 
 /** Pub/sub channel that tells every backend process to stop a generation. */
 const CANCEL_CHANNEL = "asset-generation:cancel";
@@ -76,6 +81,33 @@ export class GenerationAbortCoordinator
       },
       signal: controller.signal,
     };
+  }
+
+  /**
+   * Runs one generation with the shared distributed cancellation lifecycle.
+   * This is the normal entry point for agents: it opens the run, rejects a
+   * previously recorded stop, translates abort errors, and always closes it.
+   * @param generationId - Client id used to stop this generation
+   * @param operation - Agent work that receives the distributed abort signal
+   * @returns The operation result
+   * @throws GenerationCancelledException when the run is stopped
+   */
+  public async run<Result>(
+    generationId: string,
+    operation: (signal: AbortSignal) => Promise<Result>,
+  ): Promise<Result> {
+    const run = await this.begin(generationId);
+    try {
+      throwIfAborted(run.signal);
+      return await operation(run.signal);
+    } catch (error) {
+      if (isGenerationAbort(error, run.signal)) {
+        throw new GenerationCancelledException();
+      }
+      throw error;
+    } finally {
+      await run.end();
+    }
   }
 
   /**

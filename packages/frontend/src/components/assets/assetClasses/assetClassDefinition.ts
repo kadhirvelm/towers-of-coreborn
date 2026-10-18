@@ -1,4 +1,4 @@
-import type { ServiceError } from "@towers-of-coreborn/api";
+import type { DungeonSlot, ServiceError } from "@towers-of-coreborn/api";
 import type { ComponentType } from "react";
 import type { AvailableServiceCaller } from "@/services/helpers/types";
 import type { PendingJob } from "../PendingJobCard";
@@ -19,12 +19,24 @@ export interface AssetClassFormCopy {
  * @property refreshKey - Changes after each successful generation; galleries refetch when it changes
  */
 export interface AssetGalleryProps {
+  /** Links an existing asset into a dungeon slot. Returns an error message, or null. */
+  onAssociateDungeonSlot?: (
+    dungeonId: string,
+    slotId: string,
+    assetId: string,
+  ) => Promise<string | null>;
   onDismissJob: (id: string) => void;
+  /** Starts the agent for one saved dungeon prompt. */
+  onGenerateDungeonSlot?: (dungeonId: string, slot: DungeonSlot) => void;
   onStopJob: (id: string) => void;
+  /** Stops the agent run for one dungeon slot. */
+  onStopDungeonSlot?: (generationId: string, assetClassId: string) => void;
   pendingJobs: PendingJob[];
   refreshKey: number;
   /** Successful generate payloads kept for this session, newest first. */
   results: readonly unknown[];
+  /** Slot runs, including ones whose pending card is on another tab. */
+  slotJobs?: PendingJob[];
 }
 
 /**

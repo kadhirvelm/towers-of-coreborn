@@ -29,8 +29,9 @@ export const isServiceError = <T>(
   const isError =
     (response as ServiceError | null | undefined)?.type === "error";
   if (isError) {
+    const message = (response as ServiceError).message;
     // biome-ignore lint/suspicious/noConsole: Need to indicate to the user that there was an error
-    console.error(response);
+    console.error(typeof message === "string" ? message : response);
   }
 
   return isError;

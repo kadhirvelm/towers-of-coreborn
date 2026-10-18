@@ -4,8 +4,8 @@ import { isServiceError } from "@towers-of-coreborn/api";
 import clsx from "clsx";
 import { DatabaseZap, Unplug } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
+import { copyText } from "@/lib/copyText";
 import { Button, Flex } from "@/lib/radix";
-import { DisplayText } from "@/lib/radix/DisplayText";
 import { useClientServiceCallers } from "@/services/clientServiceCallers";
 import styles from "./ProductNowConnection.module.scss";
 
@@ -25,6 +25,7 @@ export const ProductNowConnection = ({
   const { clientServiceCallers } = useClientServiceCallers();
   const [connected, setConnected] = useState<boolean | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [errorCopied, setErrorCopied] = useState(false);
 
   useEffect(() => {
     let isMounted = true;
@@ -33,6 +34,7 @@ export const ProductNowConnection = ({
         return;
       }
       if (isServiceError(result)) {
+        setErrorCopied(false);
         setErrorMessage(result.message);
         setConnected(false);
         return;
@@ -52,9 +54,11 @@ export const ProductNowConnection = ({
   const disconnect = useCallback(async () => {
     const result = await clientServiceCallers.productNowMcp.disconnect();
     if (isServiceError(result)) {
+      setErrorCopied(false);
       setErrorMessage(result.message);
       return;
     }
+    setErrorCopied(false);
     setErrorMessage(null);
     setConnected(result.connected);
   }, [clientServiceCallers]);
@@ -85,9 +89,22 @@ export const ProductNowConnection = ({
         {label}
       </Button>
       {errorMessage && (
-        <DisplayText className={styles.error} size="1">
-          {errorMessage}
-        </DisplayText>
+        <div className={styles.error}>
+          <pre className={styles.errorText}>{errorMessage}</pre>
+          <button
+            className={styles.errorCopy}
+            onClick={() => {
+              void copyText(errorMessage).then((didCopy) => {
+                if (didCopy) {
+                  setErrorCopied(true);
+                }
+              });
+            }}
+            type="button"
+          >
+            {errorCopied ? "Copied" : "Copy error"}
+          </button>
+        </div>
       )}
     </Flex>
   );

@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { MockRedisService } from "src/infra/redis/__tests__/mockRedis.module";
 import type { RedisService } from "src/infra/redis/redis.service";
 import { GenerationAbortCoordinator } from "../generationAbort.coordinator";
+import { GenerationCancelledException } from "../generationCancelled";
 
 const GENERATION_ID = "4f1c0b2e-6a7d-4c8e-9f10-123456789abc";
 
@@ -44,6 +45,38 @@ describe("GenerationAbortCoordinator", () => {
     await runs.stop(GENERATION_ID);
     expect(second.signal.aborted).toBe(true);
     await second.end();
+  });
+
+  test("run owns the cancellation lifecycle", async () => {
+    const redis = new MockRedisService();
+    const runs = coordinator(redis);
+    await runs.onModuleInit();
+
+    const result = await runs.run(GENERATION_ID, async (signal) => {
+      expect(signal.aborted).toBe(false);
+      return "done";
+    });
+    await runs.stop(GENERATION_ID);
+
+    expect(result).toBe("done");
+  });
+
+  test("run translates a distributed stop into a cancellation", async () => {
+    const redis = new MockRedisService();
+    const runs = coordinator(redis);
+    await runs.onModuleInit();
+
+    const error = await runs
+      .run(GENERATION_ID, async () => {
+        await runs.stop(GENERATION_ID);
+        throw new Error("provider aborted");
+      })
+      .then(
+        () => undefined,
+        (caught: unknown) => caught,
+      );
+
+    expect(error instanceof GenerationCancelledException).toBe(true);
   });
 });
 
