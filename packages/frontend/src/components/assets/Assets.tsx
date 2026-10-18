@@ -2,6 +2,7 @@
 
 import clsx from "clsx";
 import { useState } from "react";
+import { ProductNowConnection } from "@/components/productNow/ProductNowConnection";
 import { Button, Dialog, Flex } from "@/lib/radix";
 import styles from "./Assets.module.scss";
 import type { AssetClassDefinition } from "./assetClasses/assetClassDefinition";
@@ -16,8 +17,14 @@ import { useAssetGenerationJobs } from "./useAssetGenerationJobs";
 export function Assets() {
   const [activeClassId, setActiveClassId] = useState(ASSET_CLASSES[0]?.id);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
-  const { dismissJob, getJobsForClass, getRefreshKey, startJob, stopJob } =
-    useAssetGenerationJobs();
+  const {
+    dismissJob,
+    getJobsForClass,
+    getRefreshKey,
+    getResultsForClass,
+    startJob,
+    stopJob,
+  } = useAssetGenerationJobs();
 
   const activeClass =
     ASSET_CLASSES.find((assetClass) => assetClass.id === activeClassId) ??
@@ -49,6 +56,7 @@ export function Assets() {
         </Flex>
 
         <Flex className={styles.workshopActions}>
+          <ProductNowConnection placement="inline" />
           <AssetClassTabs
             activeClassId={activeClass.id}
             onSelect={handleSelectClass}
@@ -80,6 +88,7 @@ export function Assets() {
         onStopJob={(jobId) => stopJob(activeClass, jobId)}
         pendingJobs={activeJobs}
         refreshKey={getRefreshKey(activeClass.id)}
+        results={getResultsForClass(activeClass.id)}
       />
     </Flex>
   );

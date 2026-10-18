@@ -147,6 +147,22 @@ export class ProductNowMcpService {
   }
 
   /**
+   * Picks the ProductNow session for this request.
+   * A cookie wins when that browser is connected. Otherwise the newest stored
+   * connection is used, because cross-site API calls omit the session cookie.
+   * @param sessionId - Session id from the cookie, when the browser sent one
+   * @returns Connected session id, or undefined when ProductNow is not connected
+   */
+  public async resolveConnectedSessionId(
+    sessionId: string | undefined,
+  ): Promise<string | undefined> {
+    if (sessionId && (await this.isConnected(sessionId))) {
+      return sessionId;
+    }
+    return this.sessionStore.findLatestConnectedSessionId();
+  }
+
+  /**
    * Lists tools available to the connected ProductNow user.
    * @param sessionId - Opaque browser session identifier
    * @returns ProductNow MCP tool declarations

@@ -8,6 +8,10 @@ import {
   PlayableCardServiceDefinition,
 } from "./services/assetClasses";
 import {
+  DungeonServiceApi,
+  DungeonServiceDefinition,
+} from "./services/dungeon";
+import {
   ProductNowMcpServiceApi,
   ProductNowMcpServiceDefinition,
 } from "./services/productNowMcp";
@@ -15,6 +19,7 @@ import {
 export type AvailableServices = {
   battleBackground: BattleBackgroundServiceApi;
   cardCharacter: CardCharacterServiceApi;
+  dungeon: DungeonServiceApi;
   playableCard: PlayableCardServiceApi;
   productNowMcp: ProductNowMcpServiceApi;
 };
@@ -26,6 +31,7 @@ export type AvailableServicesDefinition = {
 export const AVAILABLE_SERVICES: AvailableServicesDefinition = {
   battleBackground: BattleBackgroundServiceDefinition,
   cardCharacter: CardCharacterServiceDefinition,
+  dungeon: DungeonServiceDefinition,
   playableCard: PlayableCardServiceDefinition,
   productNowMcp: ProductNowMcpServiceDefinition,
 };

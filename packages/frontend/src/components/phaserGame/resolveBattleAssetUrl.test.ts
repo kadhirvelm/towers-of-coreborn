@@ -11,10 +11,12 @@ describe("resolveBattleAssetUrl", () => {
   test("prefixes a static path with the backend origin", () => {
     expect(
       resolveBattleAssetUrl(
-        "/static/card-characters/set 1/level-1.png",
+        "/static/card-characters/set 1/level-1.webp",
         ORIGIN,
       ),
-    ).toBe("https://localhost:8080/static/card-characters/set%201/level-1.png");
+    ).toBe(
+      "https://localhost:8080/static/card-characters/set%201/level-1.webp",
+    );
   });
 
   test("does not double-encode a path that is already escaped", () => {
@@ -29,13 +31,13 @@ describe("resolveBattleAssetUrl", () => {
   });
 
   test("keeps an absolute workshop URL", () => {
-    const url = "https://localhost:8080/static/playable-cards/card-1/card.png";
+    const url = "https://localhost:8080/static/playable-cards/card-1/card.webp";
     expect(resolveBattleAssetUrl(url, ORIGIN)).toBe(url);
   });
 
   test("returns a root-relative path when no backend origin is configured", () => {
-    expect(resolveBattleAssetUrl("/static/playable-cards/a/card.png", "")).toBe(
-      "/static/playable-cards/a/card.png",
-    );
+    expect(
+      resolveBattleAssetUrl("/static/playable-cards/a/card.webp", ""),
+    ).toBe("/static/playable-cards/a/card.webp");
   });
 });

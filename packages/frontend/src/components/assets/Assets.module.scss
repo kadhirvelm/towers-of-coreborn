@@ -267,11 +267,12 @@ $blueprint-border: rgb(80 160 255 / 22%);
 
 .workshopActions {
   align-items: center;
+  flex: 1 1 320px;
   flex-wrap: wrap;
   gap: 12px;
   justify-content: flex-end;
   margin-left: auto;
-  max-width: 100%;
+  min-width: 0;
 }
 
 .pathSwitcher {
@@ -545,6 +546,51 @@ $blueprint-border: rgb(80 160 255 / 22%);
     max-height: 480px;
     object-fit: contain;
   }
+}
+
+.dungeonCharacter {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 100%;
+}
+
+.dungeonGroupLabel {
+  color: $blueprint-muted;
+  font-family: monospace;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.dungeonList {
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+  width: 100%;
+}
+
+.dungeonSetup {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  width: 100%;
+}
+
+.dungeonStatic {
+  cursor: default;
+
+  &:hover {
+    border-color: vars.$border-color;
+    box-shadow: none;
+  }
+}
+
+.dungeonSummary {
+  color: vars.$white;
+  font-size: 16px;
+  line-height: 1.45;
+  margin: 0;
 }
 
 .playableCardLore {

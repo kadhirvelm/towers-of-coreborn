@@ -13,7 +13,7 @@ export type CardCharacterLevelNumber = 1 | 2 | 3 | 4;
 export interface CardCharacterLevelAsset {
   /** How this stage should look, as planned for image generation */
   description: string;
-  /** File name inside the character set directory, e.g. `level-1.png` */
+  /** File name inside the character set directory, e.g. `level-1.webp` */
   fileName: string;
   level: CardCharacterLevelNumber;
   /** Short name for this power stage */

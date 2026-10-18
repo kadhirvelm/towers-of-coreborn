@@ -25,17 +25,29 @@ describe("CardCharacterAgent", () => {
     }
   });
 
-  test("gives the registered generate-image tool to the coordinator", async () => {
+  test("gives ProductNow research and generate-image to the coordinator", async () => {
     const runGenerationCoordinator = mock(
       async (input: {
         instructions: string;
+        maxSteps?: number;
         toolId: string;
         tools: unknown;
       }) => {
         expect(input.tools).toBe(CardCharacterAgentTool);
         expect(input.toolId).toBe(CardCharacterAgentTool.GenerateImage);
+        expect(CardCharacterAgentTool.ConsultProductNow).toBe(
+          "consult-productnow",
+        );
+        expect(input.maxSteps).toBe(4);
+        expect(input.instructions).toContain("`consult-productnow`");
+        expect(input.instructions).toContain(
+          "`ff1b04a0-b440-4746-9a1a-cd25fba0c32b`",
+        );
         expect(input.instructions).toContain("`generate-image`");
-        expect(input.instructions).toContain("facing the viewer");
+        expect(input.instructions).toContain("facing right");
+        expect(input.instructions).toContain("Pure white background");
+        expect(input.instructions).toContain("Full body from head to feet");
+        expect(input.instructions).toContain("Soft watercolor on paper");
         return {
           text: "Workshop Apprentice through Clockwork Sovereign.",
           toolOutput: imageSet("/tmp/not-read"),

@@ -41,7 +41,7 @@ export async function readBattleBackgrounds(
 }
 
 /**
- * Reads one background when both its manifest and PNG exist.
+ * Reads one background when both its manifest and WebP exist.
  * @param rootPath - Battle-background storage root
  * @param id - Asset folder name
  * @param publicBaseUrl - Absolute static URL prefix

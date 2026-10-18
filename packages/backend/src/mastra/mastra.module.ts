@@ -2,6 +2,7 @@ import { Module } from "@nestjs/common";
 import { BattleBackgroundAgentModule } from "./agents/battle-background/battleBackgroundAgent.module";
 import { CardCharacterAgentModule } from "./agents/card-character/cardCharacterAgent.module";
 import { CardGeneratorAgentModule } from "./agents/card-generator/cardGeneratorAgent.module";
+import { DungeonCoordinatorAgentModule } from "./agents/dungeon-coordinator/dungeonCoordinatorAgent.module";
 import { MastraCoreModule } from "./mastraCore.module";
 
 /**
@@ -14,12 +15,14 @@ import { MastraCoreModule } from "./mastraCore.module";
     BattleBackgroundAgentModule,
     CardCharacterAgentModule,
     CardGeneratorAgentModule,
+    DungeonCoordinatorAgentModule,
   ],
   imports: [
     MastraCoreModule,
     BattleBackgroundAgentModule,
     CardCharacterAgentModule,
     CardGeneratorAgentModule,
+    DungeonCoordinatorAgentModule,
   ],
 })
 export class MastraModule {}

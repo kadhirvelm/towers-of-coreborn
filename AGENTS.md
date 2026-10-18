@@ -51,16 +51,20 @@ that package directory.
   service with a `query` method. Asset classes call `query`; they do not
   construct Mastra agents themselves. `battle-background` paints battle rooms,
   `card-character` paints four-level portraits, and `card-generator` writes one
-  lore-backed playable card. Painting goes through the shared `generate-image`
-  tool. The agent's instructions carry the art direction, and the agent passes
+  lore-backed playable card. `dungeon-coordinator` accepts one broad setup
+  prompt and calls those three agents through request-scoped tools, returning
+  backgrounds and characters grouped with their cards. The Blueprint Workshop
+  exposes that coordinator as the Dungeons tab. Painting goes through the shared
+  `generate-image` tool. The agent's instructions carry the art direction, and the agent passes
   that direction in the tool call. Asset classes do not call image providers
   themselves. `consult-productnow` is a registry tool that runs a research
   subagent. That subagent loads ProductNow's read tools for the browser's
   OAuth session itself, so those MCP tools are not in the shared registry.
-  Lore and room agents opt into `consult-productnow`. A tool that needs
-  per-request context, such as a Lore search for
-  the browser's ProductNow session, is built for that query and passed to the
-  runner with the registry tools. Each query takes a `generationId` and keeps an
+  Battle-background, card-character, and card-generator agents opt into
+  `consult-productnow` and must read the Lore document before they paint. A
+  tool that needs per-request context, such as a Lore search for the browser's
+  ProductNow session, is built for that query and passed to the runner with
+  the registry tools. Each query takes a `generationId` and keeps an
   `AbortController` for that run. `abort` writes the stop to Redis and
   publishes it, so a cancel request can stop a run on another process.
 
@@ -85,7 +89,7 @@ and is imported from `@towers-of-coreborn/api`.
 ProductNow MCP access lives in `packages/backend/src/product-now-mcp/`. The
 backend serves its OAuth Client ID Metadata Document at
 `/.well-known/oauth-client-metadata/towers-of-coreborn.json` and stores
-per-browser OAuth state encrypted in Redis. Keep MCP tokens server-side.
+per-browser OAuth state encrypted in Postgres. Keep MCP tokens server-side.
 
 ### Database
 

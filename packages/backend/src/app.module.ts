@@ -1,6 +1,7 @@
 import { Module } from "@nestjs/common";
 import { AssetClassesModule } from "./asset-classes/asset-classes.module";
 import { ConfigurationModule } from "./configuration/configuration.module";
+import { DungeonModule } from "./dungeon/dungeon.module";
 import { GameRoomModule } from "./game-room/game-room.module";
 import { RedisModule } from "./infra/redis/redis.module";
 import { AllExceptionsFilter } from "./library/AllExceptions.filter";
@@ -17,6 +18,7 @@ export const SharedModules = [
   imports: [
     GameRoomModule,
     AssetClassesModule,
+    DungeonModule,
     ProductNowMcpModule,
     ...SharedModules,
   ],

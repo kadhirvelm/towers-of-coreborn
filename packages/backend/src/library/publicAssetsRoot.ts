@@ -20,8 +20,8 @@ export function getPublicAssetsRootPath(): string {
 
 /**
  * Builds a public URL path under {@link PUBLIC_ASSETS_URL_PREFIX}, encoding each segment.
- * @param segments - Path segments below the public root, e.g. `["card-characters", "set-1", "a.png"]`
- * @returns A path such as `/static/card-characters/set-1/a.png`
+ * @param segments - Path segments below the public root, e.g. `["card-characters", "set-1", "a.webp"]`
+ * @returns A path such as `/static/card-characters/set-1/a.webp`
  */
 export function buildPublicAssetUrlPath(...segments: string[]): string {
   const encoded = segments

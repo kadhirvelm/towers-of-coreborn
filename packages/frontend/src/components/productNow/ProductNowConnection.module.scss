@@ -5,6 +5,11 @@
   right: 20px;
   top: 20px;
   z-index: 10;
+
+  &.inline {
+    position: static;
+    z-index: auto;
+  }
 }
 
 .error {

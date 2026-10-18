@@ -14,17 +14,19 @@ interface AssetGenerationJob extends PendingJob {
   assetClassId: string;
 }
 
-/** In-flight jobs and how many times each class's gallery should refetch. */
+/** In-flight jobs, gallery refresh counts, and results kept for this session. */
 export interface AssetGenerationJobState {
   jobs: AssetGenerationJob[];
   refreshKeys: Record<string, number>;
+  /** Successful generate payloads, newest first, for classes that display them directly. */
+  results: Record<string, unknown[]>;
 }
 
 /**
  * @returns Empty job state
  */
 export function createAssetGenerationJobState(): AssetGenerationJobState {
-  return { jobs: [], refreshKeys: {} };
+  return { jobs: [], refreshKeys: {}, results: {} };
 }
 
 /**
@@ -74,6 +76,7 @@ export function completeAssetGenerationJob(
       ...state.refreshKeys,
       [job.assetClassId]: (state.refreshKeys[job.assetClassId] ?? 0) + 1,
     },
+    results: state.results,
   };
 }
 
@@ -154,6 +157,10 @@ export function applyGenerationResult(
   input: {
     errorMessage: (error: unknown) => string;
     jobId: string;
+    /** Other galleries that should refetch after this generation succeeds. */
+    refreshClassIds?: readonly string[];
+    /** Keeps the payload for a gallery that has no stored list of its own. */
+    rememberResult?: boolean;
     result: unknown;
   },
 ): AssetGenerationJobState {
@@ -171,7 +178,20 @@ export function applyGenerationResult(
       input.errorMessage(input.result),
     );
   }
-  return completeAssetGenerationJob(state, input.jobId);
+
+  const job = state.jobs.find((entry) => entry.id === input.jobId);
+  const completed = completeAssetGenerationJob(state, input.jobId);
+  if (job === undefined) {
+    return completed;
+  }
+
+  const remembered = rememberGenerationResult(
+    completed,
+    job.assetClassId,
+    input.result,
+    input.rememberResult === true,
+  );
+  return refreshAssetClasses(remembered, input.refreshClassIds ?? []);
 }
 
 /**
@@ -196,4 +216,64 @@ export function refreshKeyForAssetClass(
   assetClassId: string,
 ): number {
   return state.refreshKeys[assetClassId] ?? 0;
+}
+
+/**
+ * @param state - Current jobs
+ * @param assetClassId - Asset class to look up
+ * @returns Successful results kept for that class, newest first
+ */
+export function resultsForAssetClass(
+  state: AssetGenerationJobState,
+  assetClassId: string,
+): readonly unknown[] {
+  return state.results[assetClassId] ?? [];
+}
+
+/**
+ * Stores one successful payload when the class displays it directly.
+ * @param state - Jobs after the running entry was removed
+ * @param assetClassId - Class that produced the payload
+ * @param result - Successful generate response
+ * @param remember - Whether this class keeps its responses
+ * @returns State with the result prepended, or the same completed state
+ */
+function rememberGenerationResult(
+  state: AssetGenerationJobState,
+  assetClassId: string,
+  result: unknown,
+  remember: boolean,
+): AssetGenerationJobState {
+  if (!remember) {
+    return state;
+  }
+
+  return {
+    ...state,
+    results: {
+      ...state.results,
+      [assetClassId]: [result, ...(state.results[assetClassId] ?? [])],
+    },
+  };
+}
+
+/**
+ * Asks additional galleries to refetch.
+ * @param state - Current jobs
+ * @param assetClassIds - Classes whose stored assets may have changed
+ * @returns State with those refresh keys incremented
+ */
+function refreshAssetClasses(
+  state: AssetGenerationJobState,
+  assetClassIds: readonly string[],
+): AssetGenerationJobState {
+  if (assetClassIds.length === 0) {
+    return state;
+  }
+
+  const refreshKeys = { ...state.refreshKeys };
+  for (const assetClassId of assetClassIds) {
+    refreshKeys[assetClassId] = (refreshKeys[assetClassId] ?? 0) + 1;
+  }
+  return { ...state, refreshKeys };
 }

@@ -8,8 +8,9 @@ describe("buildBattleBackgroundImagePrompt", () => {
       title: "Moon Gate Terrace",
     });
 
-    expect(prompt).toContain("wide 16:9");
-    expect(prompt).toContain("Soft watercolor");
+    expect(prompt).toContain("wide 16:9 soft watercolor painting");
+    expect(prompt).toContain("Low detail overall");
+    expect(prompt).toContain("Avoid photorealism");
     expect(prompt).toContain("Chinese mythology");
     expect(prompt).toContain("left third");
     expect(prompt).toContain("right third");

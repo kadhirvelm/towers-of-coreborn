@@ -15,6 +15,20 @@ export const CARD_CHARACTER_IMAGE_CONFIG: ImageGenerationConfig = {
   imageSize: "1K",
 };
 
+/**
+ * Pixel size every saved level is fitted onto, so all four levels and all
+ * providers share one canvas. 3:4, matching {@link CARD_CHARACTER_IMAGE_CONFIG}.
+ */
+export const CARD_CHARACTER_CANVAS_PX = { height: 1024, width: 768 } as const;
+
+/** Fill for canvas padding. Matches the white background the prompt asks for. */
+export const CARD_CHARACTER_CANVAS_BACKGROUND = {
+  alpha: 1,
+  b: 255,
+  g: 255,
+  r: 255,
+} as const;
+
 export const CARD_CHARACTER_MANIFEST_FILE_NAME = "manifest.json";
 
 /**
@@ -34,7 +48,7 @@ export function isCardCharacterLevelNumber(
 export function cardCharacterLevelFileName(
   level: CardCharacterLevelNumber,
 ): string {
-  return `level-${level}.png`;
+  return `level-${level}.webp`;
 }
 
 /**

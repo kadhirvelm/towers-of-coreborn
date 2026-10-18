@@ -68,6 +68,10 @@ describe("CardGeneratorAgent", () => {
       expect(input.tools[AgentTool.GenerateImage]).toBeDefined();
       expect(input.tools[SEARCH_LORE_TOOL_ID]).toBeDefined();
       expect(input.tools[SUBMIT_PLAYABLE_CARD_TOOL_ID]).toBeDefined();
+      expect(input.agentConfig.instructions).toContain("`consult-productnow`");
+      expect(input.agentConfig.instructions).toContain(
+        "`ff1b04a0-b440-4746-9a1a-cd25fba0c32b`",
+      );
       expect(input.agentConfig.instructions).toContain("`generate-image`");
       expect(input.agentConfig.instructions).toContain("Watercolor on paper");
       expect(input.prompt).toContain("first Coreborn bond");
@@ -116,7 +120,7 @@ describe("CardGeneratorAgent", () => {
       expect(card?.effects[0]?.text).toBe("Deal 8 damage to one enemy.");
       expect(card?.loreSources[0]?.excerpt).toBe(loreExcerpt);
       expect(card?.imageUrl).toBe(
-        `https://backend.test/static/playable-cards/${cardId}/card.png`,
+        `https://backend.test/static/playable-cards/${cardId}/card.webp`,
       );
     } finally {
       await rm(tempDirectory, { force: true, recursive: true });

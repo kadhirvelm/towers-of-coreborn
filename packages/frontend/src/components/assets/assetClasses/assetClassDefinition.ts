@@ -23,6 +23,8 @@ export interface AssetGalleryProps {
   onStopJob: (id: string) => void;
   pendingJobs: PendingJob[];
   refreshKey: number;
+  /** Successful generate payloads kept for this session, newest first. */
+  results: readonly unknown[];
 }
 
 /**
@@ -59,6 +61,16 @@ export interface AssetClassDefinition {
   /** Lists stored assets for this class and renders them with pending jobs. */
   Gallery: ComponentType<AssetGalleryProps>;
   id: string;
+  /**
+   * Asset classes whose stored galleries should refetch after this class
+   * generates successfully. Used when one generation writes another class's assets.
+   */
+  refreshClassIds?: readonly string[];
+  /**
+   * Keeps successful generate payloads in the workshop session.
+   * Set this when the class has no stored list of its own.
+   */
+  remembersResults?: boolean;
   subtitle: string;
   tabLabel: string;
 }

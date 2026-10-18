@@ -31,13 +31,15 @@ describe("readBattleBackgrounds", () => {
 
     expect(asset?.title).toBe("Moon Gate Terrace");
     expect(asset?.imageUrl).toBe(
-      `https://backend.test/static/battle-backgrounds/${ASSET_ID}/background.png`,
+      `https://backend.test/static/battle-backgrounds/${ASSET_ID}/background.webp`,
     );
   });
 
   test("skips an asset whose image is missing", async () => {
     await writeFixture();
-    await rm(BATTLE_BACKGROUND_STORAGE.filePath(ASSET_ID, "background.png"));
+    await rm(
+      BATTLE_BACKGROUND_STORAGE.filePath(ASSET_ID, BATTLE_BACKGROUND_FILE_NAME),
+    );
 
     const assets = await readBattleBackgrounds(
       BATTLE_BACKGROUND_STORAGE.rootPath(),

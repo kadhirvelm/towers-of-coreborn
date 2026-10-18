@@ -4,7 +4,10 @@ import { join } from "node:path";
 import { Injectable, InternalServerErrorException } from "@nestjs/common";
 import sharp from "sharp";
 import { deleteImageFiles } from "src/mastra/tools/generateImageTool.service";
+import { encodeGeneratedImageAsWebp } from "../shared/encodeGeneratedImageAsWebp";
 import {
+  CARD_CHARACTER_CANVAS_BACKGROUND,
+  CARD_CHARACTER_CANVAS_PX,
   CARD_CHARACTER_MANIFEST_FILE_NAME,
   type CardCharacterLevelNumber,
   cardCharacterLevelFileName,
@@ -97,9 +100,11 @@ export class CardCharacterToolService {
   }
 
   /**
-   * Re-encodes one model image as PNG into the set directory.
+   * Fits one model image onto the shared canvas and writes it as WebP.
+   * The image is scaled to fit without cropping and padded with white.
    * @param params - Source file, stage, and destination
    * @returns Saved portrait metadata
+   * @throws InternalServerErrorException when the source image is below the minimum edge
    */
   private async persistPortrait(params: {
     description: string;
@@ -108,8 +113,7 @@ export class CardCharacterToolService {
     setDirectory: string;
     title: string;
   }): Promise<SavedLevel> {
-    const png = await sharp(params.filePath).png().toBuffer();
-    const metadata = await sharp(png).metadata();
+    const metadata = await sharp(params.filePath).metadata();
     const width = metadata.width ?? 0;
     const height = metadata.height ?? 0;
     if (width < MIN_PORTRAIT_EDGE_PX || height < MIN_PORTRAIT_EDGE_PX) {
@@ -118,8 +122,19 @@ export class CardCharacterToolService {
       );
     }
 
+    const fitted = await encodeGeneratedImageAsWebp(
+      await sharp(params.filePath)
+        .resize({
+          background: CARD_CHARACTER_CANVAS_BACKGROUND,
+          fit: "contain",
+          height: CARD_CHARACTER_CANVAS_PX.height,
+          width: CARD_CHARACTER_CANVAS_PX.width,
+        })
+        .toBuffer(),
+    );
+
     const fileName = cardCharacterLevelFileName(params.level);
-    await writeFile(join(params.setDirectory, fileName), png);
+    await writeFile(join(params.setDirectory, fileName), fitted);
 
     return {
       description: params.description,

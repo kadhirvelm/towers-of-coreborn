@@ -1,6 +1,6 @@
 import type { ImageGenerationConfig } from "src/model/types/modelRequestTypes";
 
-export const BATTLE_BACKGROUND_FILE_NAME = "background.png";
+export const BATTLE_BACKGROUND_FILE_NAME = "background.webp";
 export const BATTLE_BACKGROUND_MANIFEST_FILE_NAME = "manifest.json";
 
 /** Wide frame the generate-image tool must use for a battle room. */

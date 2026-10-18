@@ -4,6 +4,7 @@ import { access, mkdtemp, readdir, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import sharp from "sharp";
+import { CARD_CHARACTER_CANVAS_PX } from "../cardCharacterSpec";
 import { CARD_CHARACTER_STORAGE } from "../cardCharacterStorage";
 import { CardCharacterToolService } from "../cardCharacterTool.service";
 import type { CardCharacterImageSet } from "../readCardCharacterImageSet";
@@ -52,13 +53,41 @@ describe("CardCharacterToolService", () => {
     expect(manifest.theme).toBe("Brass clockwork and soot.");
     expect(manifest.levels.map((level) => level.level)).toEqual([1, 2, 3, 4]);
     expect(manifest.levels.map((level) => level.fileName)).toEqual([
-      "level-1.png",
-      "level-2.png",
-      "level-3.png",
-      "level-4.png",
+      "level-1.webp",
+      "level-2.webp",
+      "level-3.webp",
+      "level-4.webp",
     ]);
     expect(manifest.levels[0]?.title).toBe("Workshop Apprentice");
     expect(await fileExists(portraits.images[0].filePath)).toBe(false);
+  });
+
+  test("fits every level onto the same canvas with white padding", async () => {
+    tempDirectory = await mkdtemp(join(tmpdir(), "card-character-canvas-"));
+    const portraits = await portraitSet(tempDirectory, 1024, 1536);
+    const service = new CardCharacterToolService();
+
+    const { setId } = await service.saveGeneratedPortraits({
+      portraits,
+      sourcePrompt: "a knight",
+    });
+    savedSetIds.push(setId);
+
+    for (const level of [1, 2, 3, 4]) {
+      const filePath = join(
+        CARD_CHARACTER_STORAGE.filePath(setId),
+        `level-${level}.webp`,
+      );
+      const metadata = await sharp(filePath).metadata();
+      expect(metadata.format).toBe("webp");
+      expect(metadata.width).toBe(CARD_CHARACTER_CANVAS_PX.width);
+      expect(metadata.height).toBe(CARD_CHARACTER_CANVAS_PX.height);
+      const corner = await sharp(filePath)
+        .extract({ height: 1, left: 0, top: 0, width: 1 })
+        .raw()
+        .toBuffer();
+      expect([...corner.subarray(0, 3)]).toEqual([255, 255, 255]);
+    }
   });
 
   test("removes the set directory when a portrait is unusable", async () => {
