@@ -17,8 +17,14 @@ import { useAssetGenerationJobs } from "./useAssetGenerationJobs";
 export function Assets() {
   const [activeClassId, setActiveClassId] = useState(ASSET_CLASSES[0]?.id);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
-  const { dismissJob, getJobsForClass, getRefreshKey, startJob, stopJob } =
-    useAssetGenerationJobs();
+  const {
+    dismissJob,
+    getJobsForClass,
+    getRefreshKey,
+    getResultsForClass,
+    startJob,
+    stopJob,
+  } = useAssetGenerationJobs();
 
   const activeClass =
     ASSET_CLASSES.find((assetClass) => assetClass.id === activeClassId) ??
@@ -82,6 +88,7 @@ export function Assets() {
         onStopJob={(jobId) => stopJob(activeClass, jobId)}
         pendingJobs={activeJobs}
         refreshKey={getRefreshKey(activeClass.id)}
+        results={getResultsForClass(activeClass.id)}
       />
     </Flex>
   );

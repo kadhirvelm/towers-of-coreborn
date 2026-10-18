@@ -51,8 +51,11 @@ that package directory.
   service with a `query` method. Asset classes call `query`; they do not
   construct Mastra agents themselves. `battle-background` paints battle rooms,
   `card-character` paints four-level portraits, and `card-generator` writes one
-  lore-backed playable card. Painting goes through the shared `generate-image`
-  tool. The agent's instructions carry the art direction, and the agent passes
+  lore-backed playable card. `dungeon-coordinator` accepts one broad setup
+  prompt and calls those three agents through request-scoped tools, returning
+  backgrounds and characters grouped with their cards. The Blueprint Workshop
+  exposes that coordinator as the Dungeons tab. Painting goes through the shared
+  `generate-image` tool. The agent's instructions carry the art direction, and the agent passes
   that direction in the tool call. Asset classes do not call image providers
   themselves. `consult-productnow` is a registry tool that runs a research
   subagent. That subagent loads ProductNow's read tools for the browser's

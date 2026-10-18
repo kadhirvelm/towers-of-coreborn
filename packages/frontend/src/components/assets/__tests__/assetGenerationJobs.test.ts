@@ -10,6 +10,7 @@ import {
   jobsForAssetClass,
   markAssetGenerationJobStopping,
   refreshKeyForAssetClass,
+  resultsForAssetClass,
   startAssetGenerationJob,
 } from "../assetGenerationJobs";
 
@@ -92,6 +93,24 @@ describe("asset generation jobs", () => {
 
     expect(jobsForAssetClass(finished, "other-class")).toEqual([]);
     expect(refreshKeyForAssetClass(finished, "other-class")).toBe(1);
+  });
+
+  test("keeps a dungeon result and refreshes the asset galleries it fills", () => {
+    const started = startOther("dungeon-1")(createAssetGenerationJobState());
+    const finished = applyGenerationResult(started, {
+      errorMessage: () => "unused",
+      jobId: "dungeon-1",
+      refreshClassIds: ["card-characters", "battle-backgrounds"],
+      rememberResult: true,
+      result: { summary: "A drowned belfry." },
+    });
+
+    expect(jobsForAssetClass(finished, "other-class")).toEqual([]);
+    expect(resultsForAssetClass(finished, "other-class")).toEqual([
+      { summary: "A drowned belfry." },
+    ]);
+    expect(refreshKeyForAssetClass(finished, "card-characters")).toBe(1);
+    expect(refreshKeyForAssetClass(finished, "battle-backgrounds")).toBe(1);
   });
 
   test("does not refetch a job that was already dismissed", () => {

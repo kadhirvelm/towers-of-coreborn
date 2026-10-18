@@ -25,7 +25,7 @@ describe("readPlayableCards", () => {
         "older-card",
       ]);
       expect(cards[0]?.imageUrl).toBe(
-        "https://backend.test/static/playable-cards/newer-card/card.png",
+        "https://backend.test/static/playable-cards/newer-card/card.webp",
       );
       expect(cards[0]?.loreSources[0]?.title).toBe("Lore");
       expect(
@@ -45,7 +45,7 @@ describe("readPlayableCards", () => {
  * @param root - Temp static root
  * @param cardId - Folder name
  * @param createdAt - Manifest timestamp
- * @param includeImage - Whether to write the PNG
+ * @param includeImage - Whether to write the WebP illustration
  */
 async function writeCard(
   root: string,
@@ -65,7 +65,7 @@ async function writeCard(
       effects: [
         { amount: 6, kind: "attack", text: "Deal 6 damage to one enemy." },
       ],
-      imageFileName: "card.png",
+      imageFileName: "card.webp",
       kind: "attack",
       loreSources: [
         {
@@ -90,6 +90,6 @@ async function writeCard(
       width: 24,
     },
   })
-    .png()
-    .toFile(join(directory, "card.png"));
+    .webp()
+    .toFile(join(directory, "card.webp"));
 }

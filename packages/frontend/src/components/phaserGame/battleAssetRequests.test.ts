@@ -22,7 +22,7 @@ describe("listBattleAssetRequests", () => {
         cards: [
           {
             fallbackName: "Strike",
-            imageUrl: "/static/playable-cards/strike/card.png",
+            imageUrl: "/static/playable-cards/strike/card.webp",
             manifestUrl: "/static/playable-cards/strike/manifest.json",
           },
           {
@@ -33,11 +33,11 @@ describe("listBattleAssetRequests", () => {
         ],
         enemy: {
           ...BATTLE_LOADOUT.enemy,
-          imageUrl: "/static/card-characters/beast/level-2.png",
+          imageUrl: "/static/card-characters/beast/level-2.webp",
         },
         player: {
           ...BATTLE_LOADOUT.player,
-          imageUrl: "/static/card-characters/hero/level-1.png",
+          imageUrl: "/static/card-characters/hero/level-1.webp",
         },
       },
       ORIGIN,
@@ -47,17 +47,17 @@ describe("listBattleAssetRequests", () => {
       {
         key: PLAYER_IMAGE_KEY,
         kind: "image",
-        url: "https://localhost:8080/static/card-characters/hero/level-1.png",
+        url: "https://localhost:8080/static/card-characters/hero/level-1.webp",
       },
       {
         key: ENEMY_IMAGE_KEY,
         kind: "image",
-        url: "https://localhost:8080/static/card-characters/beast/level-2.png",
+        url: "https://localhost:8080/static/card-characters/beast/level-2.webp",
       },
       {
         key: cardImageKey(0),
         kind: "image",
-        url: "https://localhost:8080/static/playable-cards/strike/card.png",
+        url: "https://localhost:8080/static/playable-cards/strike/card.webp",
       },
       {
         key: cardManifestKey(0),

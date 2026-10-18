@@ -62,7 +62,7 @@ describe("CardCharacterService", () => {
     expect(receivedGenerationId).toBe(GENERATION_ID);
     expect(saved.setId).toBe(SET_ID);
     expect(saved.levels[0]?.url).toBe(
-      `https://backend.test/static/card-characters/${SET_ID}/level-1.png`,
+      `https://backend.test/static/card-characters/${SET_ID}/level-1.webp`,
     );
   });
 
@@ -132,7 +132,7 @@ async function writeSet(setId: string): Promise<void> {
   await mkdir(setDirectory, { recursive: true });
   const levels = [1, 2, 3, 4].map((level) => ({
     description: `Stage ${level} grows stronger.`,
-    fileName: `level-${level}.png`,
+    fileName: `level-${level}.webp`,
     level,
     title: `Stage ${level}`,
   }));

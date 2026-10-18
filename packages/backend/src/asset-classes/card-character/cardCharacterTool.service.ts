@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { Injectable, InternalServerErrorException } from "@nestjs/common";
 import sharp from "sharp";
 import { deleteImageFiles } from "src/mastra/tools/generateImageTool.service";
+import { encodeGeneratedImageAsWebp } from "../shared/encodeGeneratedImageAsWebp";
 import {
   CARD_CHARACTER_CANVAS_BACKGROUND,
   CARD_CHARACTER_CANVAS_PX,
@@ -99,7 +100,7 @@ export class CardCharacterToolService {
   }
 
   /**
-   * Fits one model image onto the shared canvas and writes it as PNG.
+   * Fits one model image onto the shared canvas and writes it as WebP.
    * The image is scaled to fit without cropping and padded with white.
    * @param params - Source file, stage, and destination
    * @returns Saved portrait metadata
@@ -112,8 +113,7 @@ export class CardCharacterToolService {
     setDirectory: string;
     title: string;
   }): Promise<SavedLevel> {
-    const png = await sharp(params.filePath).png().toBuffer();
-    const metadata = await sharp(png).metadata();
+    const metadata = await sharp(params.filePath).metadata();
     const width = metadata.width ?? 0;
     const height = metadata.height ?? 0;
     if (width < MIN_PORTRAIT_EDGE_PX || height < MIN_PORTRAIT_EDGE_PX) {
@@ -122,15 +122,16 @@ export class CardCharacterToolService {
       );
     }
 
-    const fitted = await sharp(png)
-      .resize({
-        background: CARD_CHARACTER_CANVAS_BACKGROUND,
-        fit: "contain",
-        height: CARD_CHARACTER_CANVAS_PX.height,
-        width: CARD_CHARACTER_CANVAS_PX.width,
-      })
-      .png()
-      .toBuffer();
+    const fitted = await encodeGeneratedImageAsWebp(
+      await sharp(params.filePath)
+        .resize({
+          background: CARD_CHARACTER_CANVAS_BACKGROUND,
+          fit: "contain",
+          height: CARD_CHARACTER_CANVAS_PX.height,
+          width: CARD_CHARACTER_CANVAS_PX.width,
+        })
+        .toBuffer(),
+    );
 
     const fileName = cardCharacterLevelFileName(params.level);
     await writeFile(join(params.setDirectory, fileName), fitted);

@@ -50,7 +50,7 @@ describe("readCardCharacterSets", () => {
       expect(sets.map((set) => set.setId)).toEqual(["newer-set", "older-set"]);
       expect(sets[0]?.levels.map((level) => level.level)).toEqual([1, 2, 3, 4]);
       expect(sets[0]?.levels[0]?.url).toBe(
-        "https://backend.test/static/card-characters/newer-set/level-1.png",
+        "https://backend.test/static/card-characters/newer-set/level-1.webp",
       );
       expect(sets[0]?.prompt).toBe("a clockwork inventor");
     } finally {
@@ -99,7 +99,7 @@ describe("readCardCharacterSets", () => {
  * @param root - Temp card-character root
  * @param setId - Directory name
  * @param createdAt - Manifest timestamp
- * @param includePortraits - Whether to write the four png placeholders
+ * @param includePortraits - Whether to write the four portrait placeholders
  */
 async function writeSet(
   root: string,
@@ -112,7 +112,7 @@ async function writeSet(
 
   const levels = [1, 2, 3, 4].map((level) => ({
     description: `Stage ${level} grows stronger.`,
-    fileName: `level-${level}.png`,
+    fileName: `level-${level}.webp`,
     level,
     title: `Stage ${level}`,
   }));

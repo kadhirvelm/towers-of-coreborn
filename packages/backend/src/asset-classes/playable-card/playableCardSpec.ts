@@ -21,7 +21,7 @@ export const PLAYABLE_CARD_IMAGE_CONFIG: ImageGenerationConfig = {
   imageSize: "1K",
 };
 
-export const PLAYABLE_CARD_IMAGE_FILE_NAME = "card.png";
+export const PLAYABLE_CARD_IMAGE_FILE_NAME = "card.webp";
 
 export const PLAYABLE_CARD_MANIFEST_FILE_NAME = "manifest.json";
 

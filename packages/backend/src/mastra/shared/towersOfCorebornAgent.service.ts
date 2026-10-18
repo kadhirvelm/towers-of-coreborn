@@ -346,6 +346,8 @@ export class TowersOfCorebornAgentService {
     abortSignal?: AbortSignal;
     agentConfig: UnresolvedTowersOfCorebornAgentConfig;
     prompt: string;
+    /** Overrides the standard ten-minute timeout for long multi-asset runs. */
+    timeoutMs?: number;
     tools: ToolsInput;
   }): Promise<TowersOfCorebornAgentChatResults> {
     return this.streamChat(input);
@@ -456,6 +458,7 @@ export class TowersOfCorebornAgentService {
     abortSignal?: AbortSignal;
     agentConfig: UnresolvedTowersOfCorebornAgentConfig;
     prompt: string;
+    timeoutMs?: number;
     tools: ToolsInput;
   }): Promise<TowersOfCorebornAgentChatResults> {
     const { tools } = input;
@@ -486,6 +489,7 @@ export class TowersOfCorebornAgentService {
     // catch block which pushes generating: false.
     const mergedOptions = this.buildExecutionOptionsWithTimeout(
       executionOptions(input.abortSignal, productNowRequestContext()),
+      input.timeoutMs,
     );
 
     try {
@@ -558,12 +562,14 @@ export class TowersOfCorebornAgentService {
    * passes an `abortSignal` via Mastra options, it is combined with the timeout
    * via `AbortSignal.any` so either can abort the run.
    * @param options - Optional options forwarded to generate/stream
+   * @param timeoutMs - Session timeout in milliseconds
    * @returns Options with `abortSignal` set
    */
   private buildExecutionOptionsWithTimeout(
     options?: AgentExecutionOptionsBase<unknown>,
+    timeoutMs = DEFAULT_TIMEOUT_MS,
   ): AgentExecutionOptionsBase<unknown> {
-    const timeoutSignal = AbortSignal.timeout(DEFAULT_TIMEOUT_MS);
+    const timeoutSignal = AbortSignal.timeout(timeoutMs);
     if (options == null) {
       return { abortSignal: timeoutSignal };
     }

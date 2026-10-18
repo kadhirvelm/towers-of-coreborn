@@ -120,7 +120,7 @@ describe("CardGeneratorAgent", () => {
       expect(card?.effects[0]?.text).toBe("Deal 8 damage to one enemy.");
       expect(card?.loreSources[0]?.excerpt).toBe(loreExcerpt);
       expect(card?.imageUrl).toBe(
-        `https://backend.test/static/playable-cards/${cardId}/card.png`,
+        `https://backend.test/static/playable-cards/${cardId}/card.webp`,
       );
     } finally {
       await rm(tempDirectory, { force: true, recursive: true });

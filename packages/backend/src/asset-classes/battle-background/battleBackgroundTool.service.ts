@@ -7,6 +7,7 @@ import {
   deleteImageFiles,
   type GeneratedImage,
 } from "src/mastra/tools/generateImageTool.service";
+import { encodeGeneratedImageAsWebp } from "../shared/encodeGeneratedImageAsWebp";
 import {
   BATTLE_BACKGROUND_FILE_NAME,
   BATTLE_BACKGROUND_MANIFEST_FILE_NAME,
@@ -61,7 +62,7 @@ export class BattleBackgroundToolService {
   }
 
   /**
-   * Re-encodes the model image as a PNG in the asset directory.
+   * Re-encodes the model image as WebP in the asset directory.
    * @param filePath - Temp file from the generate-image tool
    * @param directory - Destination asset directory
    */
@@ -69,8 +70,7 @@ export class BattleBackgroundToolService {
     filePath: string,
     directory: string,
   ): Promise<void> {
-    const png = await sharp(filePath).png().toBuffer();
-    const metadata = await sharp(png).metadata();
+    const metadata = await sharp(filePath).metadata();
     const width = metadata.width ?? 0;
     const height = metadata.height ?? 0;
     if (
@@ -81,6 +81,7 @@ export class BattleBackgroundToolService {
         `Generated background was ${width}x${height}.`,
       );
     }
-    await writeFile(join(directory, BATTLE_BACKGROUND_FILE_NAME), png);
+    const webp = await encodeGeneratedImageAsWebp(filePath);
+    await writeFile(join(directory, BATTLE_BACKGROUND_FILE_NAME), webp);
   }
 }

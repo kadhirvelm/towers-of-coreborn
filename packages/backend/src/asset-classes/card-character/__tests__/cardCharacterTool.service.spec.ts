@@ -53,10 +53,10 @@ describe("CardCharacterToolService", () => {
     expect(manifest.theme).toBe("Brass clockwork and soot.");
     expect(manifest.levels.map((level) => level.level)).toEqual([1, 2, 3, 4]);
     expect(manifest.levels.map((level) => level.fileName)).toEqual([
-      "level-1.png",
-      "level-2.png",
-      "level-3.png",
-      "level-4.png",
+      "level-1.webp",
+      "level-2.webp",
+      "level-3.webp",
+      "level-4.webp",
     ]);
     expect(manifest.levels[0]?.title).toBe("Workshop Apprentice");
     expect(await fileExists(portraits.images[0].filePath)).toBe(false);
@@ -76,9 +76,10 @@ describe("CardCharacterToolService", () => {
     for (const level of [1, 2, 3, 4]) {
       const filePath = join(
         CARD_CHARACTER_STORAGE.filePath(setId),
-        `level-${level}.png`,
+        `level-${level}.webp`,
       );
       const metadata = await sharp(filePath).metadata();
+      expect(metadata.format).toBe("webp");
       expect(metadata.width).toBe(CARD_CHARACTER_CANVAS_PX.width);
       expect(metadata.height).toBe(CARD_CHARACTER_CANVAS_PX.height);
       const corner = await sharp(filePath)

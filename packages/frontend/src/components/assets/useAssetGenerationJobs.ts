@@ -13,6 +13,7 @@ import {
   jobsForAssetClass,
   markAssetGenerationJobStopping,
   refreshKeyForAssetClass,
+  resultsForAssetClass,
   startAssetGenerationJob,
 } from "./assetGenerationJobs";
 import type { PendingJob } from "./PendingJobCard";
@@ -20,7 +21,7 @@ import type { PendingJob } from "./PendingJobCard";
 /**
  * Tracks generation requests across every asset class. Several jobs can run
  * at once; each finished job bumps its class's refresh key so the gallery refetches.
- * @returns Job lists, refresh keys, and actions to start, stop, or dismiss a job
+ * @returns Job lists, refresh keys, retained results, and actions to start, stop, or dismiss a job
  */
 export function useAssetGenerationJobs() {
   const { clientServiceCallers } = useClientServiceCallers();
@@ -48,6 +49,8 @@ export function useAssetGenerationJobs() {
             applyGenerationResult(previous, {
               errorMessage: convertErrorToString,
               jobId: id,
+              refreshClassIds: assetClass.refreshClassIds,
+              rememberResult: assetClass.remembersResults,
               result,
             }),
           );
@@ -98,10 +101,18 @@ export function useAssetGenerationJobs() {
   const getRefreshKey = (assetClassId: string): number =>
     refreshKeyForAssetClass(state, assetClassId);
 
+  /**
+   * @param assetClassId - Asset class to look up
+   * @returns Successful results kept for that class during this session
+   */
+  const getResultsForClass = (assetClassId: string): readonly unknown[] =>
+    resultsForAssetClass(state, assetClassId);
+
   return {
     dismissJob,
     getJobsForClass,
     getRefreshKey,
+    getResultsForClass,
     startJob,
     stopJob,
   };

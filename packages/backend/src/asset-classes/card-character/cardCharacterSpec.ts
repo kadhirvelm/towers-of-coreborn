@@ -48,7 +48,7 @@ export function isCardCharacterLevelNumber(
 export function cardCharacterLevelFileName(
   level: CardCharacterLevelNumber,
 ): string {
-  return `level-${level}.png`;
+  return `level-${level}.webp`;
 }
 
 /**

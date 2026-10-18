@@ -13,23 +13,23 @@ describe("createAssetClassStorage", () => {
     expect(storage.rootPath()).toBe(
       join(getPublicAssetsRootPath(), "card-characters"),
     );
-    expect(storage.filePath("set-1", "level-1.png")).toBe(
+    expect(storage.filePath("set-1", "level-1.webp")).toBe(
       join(
         getPublicAssetsRootPath(),
         "card-characters",
         "set-1",
-        "level-1.png",
+        "level-1.webp",
       ),
     );
   });
 
   test("builds public paths and absolute URLs", () => {
-    expect(storage.publicPath("set-1", "level-1.png")).toBe(
-      "/static/card-characters/set-1/level-1.png",
+    expect(storage.publicPath("set-1", "level-1.webp")).toBe(
+      "/static/card-characters/set-1/level-1.webp",
     );
     expect(
-      storage.publicUrl("https://backend.test/", "set 1", "level-1.png"),
-    ).toBe("https://backend.test/static/card-characters/set%201/level-1.png");
+      storage.publicUrl("https://backend.test/", "set 1", "level-1.webp"),
+    ).toBe("https://backend.test/static/card-characters/set%201/level-1.webp");
   });
 });
 

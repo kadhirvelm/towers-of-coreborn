@@ -18,7 +18,7 @@ const MANIFEST = {
       text: "If you played an attack, deal 2 more.",
     },
   ],
-  imageFileName: "card.png",
+  imageFileName: "card.webp",
   kind: "attack",
   loreSources: [
     {

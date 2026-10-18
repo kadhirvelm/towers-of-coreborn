@@ -6,10 +6,10 @@
  * Leave a string empty to keep the colored stand-in.
  *
  * Player and enemy portraits (level 1 is weakest, level 4 is strongest):
- * `/static/card-characters/<setId>/level-1.png`
+ * `/static/card-characters/<setId>/level-1.webp`
  *
  * Card illustration:
- * `/static/playable-cards/<cardId>/card.png`
+ * `/static/playable-cards/<cardId>/card.webp`
  *
  * Card rules. The scene reads `name`, `aetherCost`, and `effects`
  * (`kind`, `amount`, `text`) from this file:

@@ -20,6 +20,7 @@ import {
 } from "src/asset-classes/playable-card/playableCardTools";
 import { readPlayableCardImage } from "src/asset-classes/playable-card/readPlayableCardImage";
 import type { PlayableCardDraft } from "src/asset-classes/playable-card/validatePlayableCardDraft";
+import { encodeGeneratedImageAsWebp } from "src/asset-classes/shared/encodeGeneratedImageAsWebp";
 import {
   ASSET_CLASS_COORDINATOR_MODEL,
   type TowersOfCorebornAgentChatResults,
@@ -254,7 +255,7 @@ function readPaintedCard(
 }
 
 /**
- * Re-encodes a model image as PNG into the card directory.
+ * Re-encodes a model image as WebP into the card directory.
  * @param generatedPath - Temp path returned by the generate-image tool
  * @param directory - Card directory
  */
@@ -262,8 +263,7 @@ async function persistIllustration(
   generatedPath: string,
   directory: string,
 ): Promise<void> {
-  const png = await sharp(generatedPath).png().toBuffer();
-  const metadata = await sharp(png).metadata();
+  const metadata = await sharp(generatedPath).metadata();
   const width = metadata.width ?? 0;
   const height = metadata.height ?? 0;
   if (width < MIN_IMAGE_EDGE_PX || height < MIN_IMAGE_EDGE_PX) {
@@ -272,7 +272,8 @@ async function persistIllustration(
     );
   }
 
-  await writeFile(join(directory, PLAYABLE_CARD_IMAGE_FILE_NAME), png);
+  const webp = await encodeGeneratedImageAsWebp(generatedPath);
+  await writeFile(join(directory, PLAYABLE_CARD_IMAGE_FILE_NAME), webp);
 }
 
 /**

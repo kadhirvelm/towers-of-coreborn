@@ -22,7 +22,6 @@ coverage/
 .DS_Store
 
 # Runtime-generated game assets
-packages/backend/src/public/*/failed/
-packages/backend/src/public/*/generated/
+packages/backend/src/public/*
 
 dist/*
