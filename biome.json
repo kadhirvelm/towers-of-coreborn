@@ -11,6 +11,7 @@
     "enabled": true
   },
   "files": {
+    "includes": ["**", "!!**/packages/backend/src/public"],
     "ignoreUnknown": false
   },
   "formatter": {

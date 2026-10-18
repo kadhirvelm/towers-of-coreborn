@@ -57,7 +57,7 @@ const submitInputSchema = z.object({
   description: z
     .string()
     .describe(
-      "Flavor text, 40 to 600 characters, using a name, floor, order, or event from the Lore passages.",
+      "Flavor text: one or two short sentences, 20 to 240 characters. A vague, mysterious hint of what this card is in the Tower's lore.",
     ),
   effects: z
     .array(effectSchema)
@@ -104,7 +104,7 @@ export function createPlayableCardResearchTools(params: {
     }),
     [SUBMIT_PLAYABLE_CARD_TOOL_ID]: createTool({
       description:
-        "Submit the finished card after search-lore has returned passages. Description must use a concrete detail from those passages. Effects stay inside the combat toolkit.",
+        "Submit the finished card after search-lore has returned passages. Description is one or two short, vague sentences that hint at the card's place in the Tower's lore. Effects stay inside the combat toolkit.",
       execute: async (input: z.infer<typeof submitInputSchema>) =>
         submitCard(input, params),
       id: SUBMIT_PLAYABLE_CARD_TOOL_ID,

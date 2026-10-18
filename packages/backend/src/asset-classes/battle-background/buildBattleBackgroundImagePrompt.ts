@@ -1,3 +1,6 @@
+export const BATTLE_BACKGROUND_PROMPT_OPENING =
+  "Create one wide 16:9 soft watercolor painting to use as a dreamy background for a card-battler encounter.";
+
 export interface BattleBackgroundImagePromptInput {
   description: string;
   previousError?: string;
@@ -12,10 +15,14 @@ export interface BattleBackgroundImagePromptInput {
 export function battleBackgroundImageRules(): string {
   return [
     "Art direction:",
-    "- Soft watercolor illustration with visible pastel washes, dreamy atmospheric depth, and gently bleeding edges.",
-    "- Chinese mythology and cultivation atmosphere; never generic western fantasy.",
-    "- Jade, moss, and sage greens as the primary palette, with gray stone accents.",
-    "- An ancient tower interior reclaimed by nature: leaf silhouettes, hanging vines, foliage framing, and leaf-littered stone.",
+    "- A soft, dreamy hand-painted watercolor on textured paper: loose wet-on-wet washes, pigment blooms, gently bleeding edges, and visible paper grain.",
+    "- Suggest forms rather than render them. Simplify architecture and foliage into broad, translucent shapes with few hard lines.",
+    "- Low detail overall. Let distant areas dissolve into mist and pale wash, and leave generous areas of soft, empty color.",
+    "- Light, airy, low-contrast values with a luminous glow. Even night or shadowed rooms stay soft and pastel, never murky or black.",
+    "- Chinese mythology and cultivation atmosphere, like a misty shan shui ink-and-wash landscape; never generic western fantasy.",
+    "- Jade, moss, and sage greens as the primary palette, with pale gray stone accents.",
+    "- An ancient tower reclaimed by nature, hinted through soft leaf silhouettes, a few drifting vines, and foliage washes framing the edges.",
+    "- Avoid photorealism, 3D rendering, digital matte painting, sharp focus, fine textures, crisp stone cracks, and dense intricate detail.",
     "",
     "Battle composition:",
     "- Environment only. No people, monsters, creatures, cards, text, logos, frames, or interface elements.",
@@ -43,7 +50,7 @@ export function buildBattleBackgroundImagePrompt(
         ];
 
   return [
-    "Create one wide 16:9 background for a card-battler encounter.",
+    BATTLE_BACKGROUND_PROMPT_OPENING,
     `Room: ${input.title.trim()}`,
     `Scene direction: ${input.description.trim()}`,
     "",

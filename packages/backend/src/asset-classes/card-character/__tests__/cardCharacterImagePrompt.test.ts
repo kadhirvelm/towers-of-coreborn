@@ -6,7 +6,7 @@ const identity =
 const theme = "Brass clockwork, soot, and warm lamplight.";
 
 describe("buildCardCharacterImagePrompt", () => {
-  test("locks a facing-viewer portrait and the weakest stage", () => {
+  test("asks for a full-body watercolor figure that starts small", () => {
     const prompt = buildCardCharacterImagePrompt({
       hasReferenceImage: false,
       identity,
@@ -18,7 +18,13 @@ describe("buildCardCharacterImagePrompt", () => {
       theme,
     });
 
-    expect(prompt).toContain("facing the viewer");
+    expect(prompt).toContain("facing right");
+    expect(prompt).toContain("Never facing left");
+    expect(prompt).toContain("Full body from head to feet");
+    expect(prompt).toContain("Soft watercolor on paper");
+    expect(prompt).toContain("Pure white background");
+    expect(prompt).toContain("small in the image");
+    expect(prompt).toContain("about one third of the image height");
     expect(prompt).toContain(identity);
     expect(prompt).toContain(theme);
     expect(prompt).toContain("level 1 of 4");
@@ -43,6 +49,8 @@ describe("buildCardCharacterImagePrompt", () => {
 
     expect(prompt).toContain("level 4 of 4");
     expect(prompt).toContain("Peak power");
+    expect(prompt).toContain("about three fifths of the image height");
+    expect(prompt).toContain("Fully equipped");
     expect(prompt).toContain(
       "A reference image of this exact character at level 1 is attached",
     );

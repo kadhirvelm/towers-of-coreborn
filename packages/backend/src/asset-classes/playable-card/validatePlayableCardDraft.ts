@@ -41,12 +41,15 @@ export function validatePlayableCardDraft(
   }
   const description = readBoundedString(
     value.description,
-    40,
-    600,
+    20,
+    240,
     "Description",
   );
   if (typeof description !== "string") {
     return description;
+  }
+  if (countSentences(description) > 2) {
+    return { error: "Description must be one or two sentences." };
   }
   const scene = readBoundedString(value.scene, 16, 800, "Scene");
   if (typeof scene !== "string") {
@@ -216,6 +219,17 @@ function readChainsFrom(
     return undefined;
   }
   return chainsFrom;
+}
+
+/**
+ * Counts sentences by their ending punctuation. Trailing text without
+ * punctuation counts as one more sentence.
+ * @param text - Flavor text
+ * @returns Number of sentences
+ */
+function countSentences(text: string): number {
+  return text.split(/[.!?…]+(?:\s+|$)/).filter((part) => part.trim() !== "")
+    .length;
 }
 
 /**

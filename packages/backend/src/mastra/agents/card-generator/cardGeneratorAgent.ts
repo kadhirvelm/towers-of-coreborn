@@ -78,9 +78,9 @@ export interface CardGeneratorResult {
  * Card-generator agent. Call {@link CardGeneratorAgent.query} with a prompt
  * and the browser's ProductNow session. It gives the Mastra agent
  * `consult-productnow`, Lore search, card submission, and `generate-image`.
- * `consult-productnow` runs the ProductNow research subagent. The
- * instructions carry the combat rules and the watercolor prompt the image
- * tool must receive.
+ * `consult-productnow` reads the Lore document before the card is written
+ * or painted. The instructions carry the combat rules and the watercolor
+ * prompt the image tool must receive.
  *
  * @example
  * ```typescript

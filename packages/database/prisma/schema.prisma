@@ -18,3 +18,13 @@ model Asset {
   description String
   filePath    String
 }
+
+/// Encrypted ProductNow OAuth session for one browser. The payload is AES-GCM
+/// ciphertext; access and refresh tokens are never stored in plaintext.
+model ProductNowOAuthSession {
+  id        String   @id
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  connected Boolean  @default(false)
+  payload   String
+}

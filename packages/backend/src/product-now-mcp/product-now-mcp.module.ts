@@ -1,6 +1,6 @@
 import { Module } from "@nestjs/common";
 import { APP_INTERCEPTOR } from "@nestjs/core";
-import { RedisModule } from "../infra/redis/redis.module";
+import { PrismaModule } from "../database/prisma.module";
 import {
   ProductNowClientMetadataController,
   ProductNowMcpController,
@@ -13,7 +13,7 @@ import { ProductNowSessionInterceptor } from "./productNowSessionContext";
 @Module({
   controllers: [ProductNowClientMetadataController, ProductNowMcpController],
   exports: [ProductNowMcpService],
-  imports: [RedisModule],
+  imports: [PrismaModule],
   providers: [
     ProductNowMcpService,
     ProductNowOAuthSessionStore,

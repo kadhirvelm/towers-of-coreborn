@@ -57,10 +57,11 @@ that package directory.
   themselves. `consult-productnow` is a registry tool that runs a research
   subagent. That subagent loads ProductNow's read tools for the browser's
   OAuth session itself, so those MCP tools are not in the shared registry.
-  Lore and room agents opt into `consult-productnow`. A tool that needs
-  per-request context, such as a Lore search for
-  the browser's ProductNow session, is built for that query and passed to the
-  runner with the registry tools. Each query takes a `generationId` and keeps an
+  Battle-background, card-character, and card-generator agents opt into
+  `consult-productnow` and must read the Lore document before they paint. A
+  tool that needs per-request context, such as a Lore search for the browser's
+  ProductNow session, is built for that query and passed to the runner with
+  the registry tools. Each query takes a `generationId` and keeps an
   `AbortController` for that run. `abort` writes the stop to Redis and
   publishes it, so a cancel request can stop a run on another process.
 
@@ -85,7 +86,7 @@ and is imported from `@towers-of-coreborn/api`.
 ProductNow MCP access lives in `packages/backend/src/product-now-mcp/`. The
 backend serves its OAuth Client ID Metadata Document at
 `/.well-known/oauth-client-metadata/towers-of-coreborn.json` and stores
-per-browser OAuth state encrypted in Redis. Keep MCP tokens server-side.
+per-browser OAuth state encrypted in Postgres. Keep MCP tokens server-side.
 
 ### Database
 

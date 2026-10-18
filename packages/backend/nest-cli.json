@@ -4,8 +4,10 @@
   "compilerOptions": {
     "assets": [
       {
+        "exclude": "public/{battle-backgrounds,card-characters,playable-cards}/**",
         "include": "public/**/*",
-        "outDir": "dist"
+        "outDir": "dist",
+        "restartOnChange": false
       }
     ],
     "builder": "swc",

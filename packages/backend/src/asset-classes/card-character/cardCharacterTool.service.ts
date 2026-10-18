@@ -5,6 +5,8 @@ import { Injectable, InternalServerErrorException } from "@nestjs/common";
 import sharp from "sharp";
 import { deleteImageFiles } from "src/mastra/tools/generateImageTool.service";
 import {
+  CARD_CHARACTER_CANVAS_BACKGROUND,
+  CARD_CHARACTER_CANVAS_PX,
   CARD_CHARACTER_MANIFEST_FILE_NAME,
   type CardCharacterLevelNumber,
   cardCharacterLevelFileName,
@@ -97,9 +99,11 @@ export class CardCharacterToolService {
   }
 
   /**
-   * Re-encodes one model image as PNG into the set directory.
+   * Fits one model image onto the shared canvas and writes it as PNG.
+   * The image is scaled to fit without cropping and padded with white.
    * @param params - Source file, stage, and destination
    * @returns Saved portrait metadata
+   * @throws InternalServerErrorException when the source image is below the minimum edge
    */
   private async persistPortrait(params: {
     description: string;
@@ -118,8 +122,18 @@ export class CardCharacterToolService {
       );
     }
 
+    const fitted = await sharp(png)
+      .resize({
+        background: CARD_CHARACTER_CANVAS_BACKGROUND,
+        fit: "contain",
+        height: CARD_CHARACTER_CANVAS_PX.height,
+        width: CARD_CHARACTER_CANVAS_PX.width,
+      })
+      .png()
+      .toBuffer();
+
     const fileName = cardCharacterLevelFileName(params.level);
-    await writeFile(join(params.setDirectory, fileName), png);
+    await writeFile(join(params.setDirectory, fileName), fitted);
 
     return {
       description: params.description,

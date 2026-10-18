@@ -4,7 +4,7 @@ import { validatePlayableCardDraft } from "../validatePlayableCardDraft";
 const validDraft = {
   aetherCost: 2,
   description:
-    "Tamsin Korr weakened a newly condensed Coreborn on floor 4, and the bond held after the Trial window closed.",
+    "Some bonds in the Spire were never meant to hold. This one did, and the fourth floor still remembers.",
   effects: [
     {
       amount: 8,
@@ -113,5 +113,21 @@ describe("validatePlayableCardDraft", () => {
         aetherCost: 0,
       }),
     ).toEqual({ error: "Aether cost must be from 1 to 4." });
+  });
+
+  test("rejects flavor text longer than two sentences", () => {
+    expect(
+      validatePlayableCardDraft({
+        ...validDraft,
+        description: "The Spire hums. The bond held. No one asks why.",
+      }),
+    ).toEqual({ error: "Description must be one or two sentences." });
+
+    expect(
+      validatePlayableCardDraft({
+        ...validDraft,
+        description: `${"The Spire remembers. ".repeat(13)}`,
+      }),
+    ).toEqual({ error: "Description must be 20 to 240 characters." });
   });
 });

@@ -29,11 +29,11 @@ export const PLAYABLE_CARD_MANIFEST_FILE_NAME = "manifest.json";
 export const MAX_PLAYABLE_CARD_RESEARCH_TURNS = 6;
 
 /**
- * Steps for one card-generator run: Lore searches, submission, the image
- * tool, and a closing reply.
+ * Steps for one card-generator run: the ProductNow lore consult, Lore
+ * searches, submission, the image tool, and a closing reply.
  */
 export const PLAYABLE_CARD_AGENT_MAX_STEPS =
-  MAX_PLAYABLE_CARD_RESEARCH_TURNS + 4;
+  MAX_PLAYABLE_CARD_RESEARCH_TURNS + 5;
 
 export const PLAYABLE_CARD_AETHER_COST = { max: 4, min: 1 } as const;
 

@@ -1,6 +1,7 @@
 "use client";
 
 import { isServiceError } from "@towers-of-coreborn/api";
+import clsx from "clsx";
 import { DatabaseZap, Unplug } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { Button, Flex } from "@/lib/radix";
@@ -8,11 +9,19 @@ import { DisplayText } from "@/lib/radix/DisplayText";
 import { useClientServiceCallers } from "@/services/clientServiceCallers";
 import styles from "./ProductNowConnection.module.scss";
 
+interface ProductNowConnectionProps {
+  /** `fixed` floats over the page. `inline` sits in the surrounding layout. */
+  placement?: "fixed" | "inline";
+}
+
 /**
  * Connect/disconnect control for the browser's ProductNow MCP session.
- * @returns A fixed-position ProductNow connection button
+ * @param placement - Where the control sits. Defaults to a fixed overlay
+ * @returns A ProductNow connection button
  */
-export const ProductNowConnection = () => {
+export const ProductNowConnection = ({
+  placement = "fixed",
+}: ProductNowConnectionProps) => {
   const { clientServiceCallers } = useClientServiceCallers();
   const [connected, setConnected] = useState<boolean | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -59,7 +68,14 @@ export const ProductNowConnection = () => {
   }
 
   return (
-    <Flex className={styles.connection} direction="column" gap="2">
+    <Flex
+      className={clsx(
+        styles.connection,
+        placement === "inline" && styles.inline,
+      )}
+      direction="column"
+      gap="2"
+    >
       <Button
         disabled={connected === null}
         onClick={connected ? disconnect : connect}

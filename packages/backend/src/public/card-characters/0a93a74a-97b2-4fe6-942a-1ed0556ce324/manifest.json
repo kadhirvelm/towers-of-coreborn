@@ -1,0 +1,32 @@
+{
+  "createdAt": "2026-10-17T23:50:33.440Z",
+  "levels": [
+    {
+      "description": "Patched clothes, sparse bomb satchel, small inert fantasy bomb, tentative shoulders; no power effects.",
+      "fileName": "level-1.png",
+      "level": 1,
+      "title": "Fuse Rookie"
+    },
+    {
+      "description": "Reinforced leather vest, fuller satchel, brass forearm guard and a controlled ember glow; a more confident stance.",
+      "fileName": "level-2.png",
+      "level": 2,
+      "title": "Cinder Slinger"
+    },
+    {
+      "description": "Expertly fitted blackened brass armor, organized bomb harness and visibly levitating ember-wreathed bombs; commanding stance.",
+      "fileName": "level-3.png",
+      "level": 3,
+      "title": "Blast Adept"
+    },
+    {
+      "description": "Peak blackened-brass bomb armor, ornate equipment and a controlled orbit of blazing fantasy bombs with radiant pressure rings; overwhelming yet composed.",
+      "fileName": "level-4.png",
+      "level": 4,
+      "title": "Inferno Master"
+    }
+  ],
+  "prompt": "A goblin with a bomb affinity",
+  "setId": "0a93a74a-97b2-4fe6-942a-1ed0556ce324",
+  "theme": "Bomb-affinity fantasy goblin; soot-black, olive green, smoke brown, rust orange and aged brass. Patched canvas, scuffed leather, hammered metal, spherical bomb and ember motifs. Polished collectible-card illustration."
+}

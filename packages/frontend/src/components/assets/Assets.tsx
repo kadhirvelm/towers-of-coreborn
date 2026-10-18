@@ -2,6 +2,7 @@
 
 import clsx from "clsx";
 import { useState } from "react";
+import { ProductNowConnection } from "@/components/productNow/ProductNowConnection";
 import { Button, Dialog, Flex } from "@/lib/radix";
 import styles from "./Assets.module.scss";
 import type { AssetClassDefinition } from "./assetClasses/assetClassDefinition";
@@ -49,6 +50,7 @@ export function Assets() {
         </Flex>
 
         <Flex className={styles.workshopActions}>
+          <ProductNowConnection placement="inline" />
           <AssetClassTabs
             activeClassId={activeClass.id}
             onSelect={handleSelectClass}

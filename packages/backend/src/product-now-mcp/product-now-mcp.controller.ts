@@ -13,12 +13,15 @@ import {
 } from "../genericTypes/controller";
 import { ProductNowMcpService } from "./product-now-mcp.service";
 import {
+  readActiveProductNowSession,
+  requireActiveProductNowSession,
+} from "./productNowSessionContext";
+import {
   PRODUCT_NOW_SESSION_COOKIE_NAME,
+  productNowSessionCookieOptions,
   readProductNowSessionId,
   requireProductNowSessionId,
 } from "./productNowSessionCookie";
-
-const SESSION_COOKIE_MAX_AGE_MS = 1000 * 60 * 60 * 24 * 30;
 
 /**
  * ProductNow OAuth browser flow and authenticated MCP operations.
@@ -41,10 +44,10 @@ export class ProductNowMcpController
   @getDecorator(ProductNowMcpServiceDefinition.endpoints.callTool)
   public async callTool(
     @Body() payload: ProductNowMcpServiceApi["callTool"]["payload"],
-    @Req() request: Request,
+    @Req() _request: Request,
   ): Promise<unknown> {
     return this.productNowMcpService.callTool(
-      this.requireSessionId(request),
+      requireActiveProductNowSession(),
       payload.name,
       payload.arguments,
     );
@@ -61,15 +64,13 @@ export class ProductNowMcpController
     @Res() response: Response,
   ): Promise<void> {
     const sessionId = readProductNowSessionId(request) ?? randomUUID();
-    response.cookie(PRODUCT_NOW_SESSION_COOKIE_NAME, sessionId, {
-      httpOnly: true,
-      maxAge: SESSION_COOKIE_MAX_AGE_MS,
-      path: "/",
-      sameSite: "lax",
-      secure: this.configurationService
-        .get("BACKEND_API_URL")
-        .startsWith("https://"),
-    });
+    response.cookie(
+      PRODUCT_NOW_SESSION_COOKIE_NAME,
+      sessionId,
+      productNowSessionCookieOptions(
+        this.configurationService.get("BACKEND_API_URL"),
+      ),
+    );
 
     const authorizationUrl =
       await this.productNowMcpService.beginAuthorization(sessionId);
@@ -79,15 +80,15 @@ export class ProductNowMcpController
   /**
    * Removes ProductNow credentials for the current browser.
    * @param _payload - Unused empty payload
-   * @param request - Incoming request carrying the session cookie
+   * @param _request - Incoming request; the interceptor already resolved the session
    * @returns Disconnected status
    */
   @getDecorator(ProductNowMcpServiceDefinition.endpoints.disconnect)
   public async disconnect(
     @Body() _payload: null,
-    @Req() request: Request,
+    @Req() _request: Request,
   ): Promise<ProductNowMcpStatus> {
-    const sessionId = readProductNowSessionId(request);
+    const sessionId = readActiveProductNowSession();
     if (sessionId) {
       await this.productNowMcpService.disconnect(sessionId);
     }
@@ -97,35 +98,31 @@ export class ProductNowMcpController
   /**
    * Reports whether the current browser has connected ProductNow.
    * @param _payload - Unused empty payload
-   * @param request - Incoming request carrying the session cookie
+   * @param _request - Incoming request; the interceptor already resolved the session
    * @returns Connection status
    */
   @getDecorator(ProductNowMcpServiceDefinition.endpoints.getStatus)
   public async getStatus(
     @Body() _payload: null,
-    @Req() request: Request,
+    @Req() _request: Request,
   ): Promise<ProductNowMcpStatus> {
-    const sessionId = readProductNowSessionId(request);
-    if (!sessionId) {
-      return { connected: false };
-    }
-    return {
-      connected: await this.productNowMcpService.isConnected(sessionId),
-    };
+    return { connected: readActiveProductNowSession() !== undefined };
   }
 
   /**
    * Lists ProductNow MCP tools for the current browser.
    * @param _payload - Unused empty payload
-   * @param request - Incoming request carrying the session cookie
+   * @param _request - Incoming request; the interceptor already resolved the session
    * @returns ProductNow tool declarations
    */
   @getDecorator(ProductNowMcpServiceDefinition.endpoints.listTools)
   public async listTools(
     @Body() _payload: null,
-    @Req() request: Request,
+    @Req() _request: Request,
   ): Promise<ProductNowMcpServiceApi["listTools"]["response"]> {
-    return this.productNowMcpService.listTools(this.requireSessionId(request));
+    return this.productNowMcpService.listTools(
+      requireActiveProductNowSession(),
+    );
   }
 
   /**

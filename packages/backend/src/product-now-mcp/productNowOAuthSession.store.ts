@@ -6,12 +6,9 @@ import type {
 } from "@modelcontextprotocol/sdk/shared/auth.js";
 import { Injectable, Logger } from "@nestjs/common";
 import { ConfigurationService } from "../configuration/configuration.service";
-import { RedisService } from "../infra/redis/redis.service";
+import { PrismaService } from "../database/prisma.service";
 
-const SESSION_TTL_SECONDS = 60 * 60 * 24 * 30;
-const OAUTH_SESSION_PREFIX = "productnow:oauth:";
-
-/** OAuth state persisted for one anonymous browser session. */
+/** OAuth state persisted for one browser session. */
 export interface ProductNowOAuthSession {
   clientInformation?: OAuthClientInformationMixed;
   codeVerifier?: string;
@@ -21,7 +18,9 @@ export interface ProductNowOAuthSession {
 }
 
 /**
- * Persists encrypted ProductNow OAuth credentials in Redis.
+ * Persists encrypted ProductNow OAuth credentials in Postgres.
+ * Rows stay until the browser disconnects, so a Redis restart does not
+ * force another ProductNow login.
  */
 @Injectable()
 export class ProductNowOAuthSessionStore {
@@ -30,7 +29,7 @@ export class ProductNowOAuthSessionStore {
 
   public constructor(
     configurationService: ConfigurationService,
-    private readonly redisService: RedisService,
+    private readonly prisma: PrismaService,
   ) {
     this.encryptionKey = this.decodeEncryptionKey(
       configurationService.get("MCP_OAUTH_ENCRYPTION_KEY"),
@@ -42,7 +41,9 @@ export class ProductNowOAuthSessionStore {
    * @param sessionId - Opaque browser session identifier
    */
   public async delete(sessionId: string): Promise<void> {
-    await this.redisService.del(this.getSessionKey(sessionId));
+    await this.prisma.client.productNowOAuthSession.deleteMany({
+      where: { id: sessionId },
+    });
   }
 
   /**
@@ -53,28 +54,27 @@ export class ProductNowOAuthSessionStore {
    * @returns Stored session, or an empty session when none exists
    */
   public async get(sessionId: string): Promise<ProductNowOAuthSession> {
-    const sessionKey = this.getSessionKey(sessionId);
-    const encryptedSession = await this.redisService.get(sessionKey);
+    const row = await this.prisma.client.productNowOAuthSession.findUnique({
+      where: { id: sessionId },
+    });
 
-    if (!encryptedSession) {
+    if (!row) {
       return {};
     }
 
     try {
-      return JSON.parse(
-        this.decrypt(encryptedSession),
-      ) as ProductNowOAuthSession;
+      return JSON.parse(this.decrypt(row.payload)) as ProductNowOAuthSession;
     } catch (error) {
       this.logger.warn(
         `Discarding unreadable ProductNow OAuth session: ${this.describeError(error)}`,
       );
-      await this.redisService.del(sessionKey);
+      await this.delete(sessionId);
       return {};
     }
   }
 
   /**
-   * Updates one browser's OAuth session and refreshes its expiry.
+   * Updates one browser's OAuth session.
    * @param sessionId - Opaque browser session identifier
    * @param updateSession - Function that returns the next session value
    * @returns Updated session
@@ -84,12 +84,28 @@ export class ProductNowOAuthSessionStore {
     updateSession: (session: ProductNowOAuthSession) => ProductNowOAuthSession,
   ): Promise<ProductNowOAuthSession> {
     const nextSession = updateSession(await this.get(sessionId));
-    await this.redisService.set(
-      this.getSessionKey(sessionId),
-      this.encrypt(JSON.stringify(nextSession)),
-      SESSION_TTL_SECONDS,
-    );
+    const payload = this.encrypt(JSON.stringify(nextSession));
+    const connected = Boolean(nextSession.tokens);
+    await this.prisma.client.productNowOAuthSession.upsert({
+      create: { connected, id: sessionId, payload },
+      update: { connected, payload },
+      where: { id: sessionId },
+    });
     return nextSession;
+  }
+
+  /**
+   * Finds the newest browser session that still has ProductNow tokens.
+   * API calls from another site do not include the session cookie, so callers
+   * use this row instead of asking the user to connect again.
+   * @returns Session id, or undefined when nothing is connected
+   */
+  public async findLatestConnectedSessionId(): Promise<string | undefined> {
+    const row = await this.prisma.client.productNowOAuthSession.findFirst({
+      orderBy: { updatedAt: "desc" },
+      where: { connected: true },
+    });
+    return row?.id;
   }
 
   /**
@@ -171,14 +187,5 @@ export class ProductNowOAuthSessionStore {
       cipher.getAuthTag().toString("base64url"),
       ciphertext.toString("base64url"),
     ].join(".");
-  }
-
-  /**
-   * Builds the Redis value key for a browser session.
-   * @param sessionId - Opaque browser session identifier
-   * @returns Redis session key
-   */
-  private getSessionKey(sessionId: string): string {
-    return `${OAUTH_SESSION_PREFIX}${sessionId}`;
   }
 }

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import type { ConfigurationService } from "../../configuration/configuration.service";
-import type { RedisService } from "../../infra/redis/redis.service";
+import type { PrismaService } from "../../database/prisma.service";
 import { ProductNowOAuthSessionStore } from "../productNowOAuthSession.store";
 
 /**
@@ -18,29 +18,82 @@ function createConfiguration(encryptionKey: string): ConfigurationService {
   } as unknown as ConfigurationService;
 }
 
+/** One encrypted session row in the in-memory stub. */
+interface SessionRow {
+  connected: boolean;
+  payload: string;
+  updatedAt: number;
+}
+
 /**
- * Builds an in-memory Redis stub.
- * @returns Redis stub and its backing values
+ * Builds an in-memory Prisma stub for the session table.
+ * @returns Prisma stub and its backing rows
  */
-function createRedis(): { redis: RedisService; values: Map<string, string> } {
-  const values = new Map<string, string>();
-  const redis = {
-    del: async (key: string) => Number(values.delete(key)),
-    get: async (key: string) => values.get(key) ?? null,
-    set: async (key: string, value: string) => {
-      values.set(key, value);
-      return "OK";
+function createPrisma(): {
+  prisma: PrismaService;
+  rows: Map<string, SessionRow>;
+} {
+  const rows = new Map<string, SessionRow>();
+  let clock = 0;
+  const prisma = {
+    client: {
+      productNowOAuthSession: {
+        deleteMany: async ({ where }: { where: { id: string } }) => {
+          return { count: Number(rows.delete(where.id)) };
+        },
+        findFirst: async ({ where }: { where: { connected: boolean } }) => {
+          const matches = [...rows.entries()]
+            .filter(([, row]) => row.connected === where.connected)
+            .sort(([, left], [, right]) => right.updatedAt - left.updatedAt);
+          const match = matches[0];
+          if (!match) {
+            return null;
+          }
+          return { id: match[0], ...match[1] };
+        },
+        findUnique: async ({ where }: { where: { id: string } }) => {
+          const row = rows.get(where.id);
+          if (row === undefined) {
+            return null;
+          }
+          return { id: where.id, payload: row.payload };
+        },
+        upsert: async ({
+          create,
+          update,
+          where,
+        }: {
+          create: { connected: boolean; id: string; payload: string };
+          update: { connected: boolean; payload: string };
+          where: { id: string };
+        }) => {
+          clock += 1;
+          const next = rows.has(where.id)
+            ? {
+                connected: update.connected,
+                payload: update.payload,
+                updatedAt: clock,
+              }
+            : {
+                connected: create.connected,
+                payload: create.payload,
+                updatedAt: clock,
+              };
+          rows.set(where.id, next);
+          return { id: where.id, payload: next.payload };
+        },
+      },
     },
-  } as unknown as RedisService;
-  return { redis, values };
+  } as unknown as PrismaService;
+  return { prisma, rows };
 }
 
 describe("ProductNowOAuthSessionStore", () => {
   it("round-trips encrypted OAuth tokens", async () => {
-    const { redis, values } = createRedis();
+    const { prisma, rows } = createPrisma();
     const store = new ProductNowOAuthSessionStore(
       createConfiguration(Buffer.alloc(32, 7).toString("base64")),
-      redis,
+      prisma,
     );
 
     await store.update("browser-session", () => ({
@@ -50,18 +103,21 @@ describe("ProductNowOAuthSessionStore", () => {
     expect((await store.get("browser-session")).tokens?.access_token).toBe(
       "secret-access-token",
     );
-    expect([...values.values()].join("")).not.toContain("secret-access-token");
+    expect([...rows.values()].map((row) => row.payload).join("")).not.toContain(
+      "secret-access-token",
+    );
+    expect(await store.findLatestConnectedSessionId()).toBe("browser-session");
   });
 
   it("discards a session encrypted with a different key", async () => {
-    const { redis, values } = createRedis();
+    const { prisma, rows } = createPrisma();
     const writer = new ProductNowOAuthSessionStore(
       createConfiguration(Buffer.alloc(32, 7).toString("base64")),
-      redis,
+      prisma,
     );
     const reader = new ProductNowOAuthSessionStore(
       createConfiguration(Buffer.alloc(32, 9).toString("base64")),
-      redis,
+      prisma,
     );
 
     await writer.update("browser-session", () => ({
@@ -69,17 +125,17 @@ describe("ProductNowOAuthSessionStore", () => {
     }));
 
     expect(await reader.get("browser-session")).toEqual({});
-    expect(values.size).toBe(0);
+    expect(rows.size).toBe(0);
   });
 
   it("rejects encryption keys that are not 32 bytes", () => {
-    const { redis } = createRedis();
+    const { prisma } = createPrisma();
 
     expect(
       () =>
         new ProductNowOAuthSessionStore(
           createConfiguration(Buffer.alloc(12).toString("base64")),
-          redis,
+          prisma,
         ),
     ).toThrow();
   });

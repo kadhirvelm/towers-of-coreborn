@@ -22,8 +22,13 @@ import type { QueryableAgent } from "../queryableAgent";
  */
 export enum CardCharacterAgentTool {
   // biome-ignore lint/style/useLiteralEnumMembers: value is the shared AgentTool id
+  ConsultProductNow = AgentTool.ConsultProductNow,
+  // biome-ignore lint/style/useLiteralEnumMembers: value is the shared AgentTool id
   GenerateImage = AgentTool.GenerateImage,
 }
+
+/** Consult ProductNow, then paint. Four steps covers both calls and a reply. */
+const CARD_CHARACTER_COORDINATOR_STEPS = 4;
 
 /**
  * Input for one card-character query.
@@ -48,9 +53,10 @@ export interface CardCharacterResult {
 /**
  * Card-character agent. Call {@link CardCharacterAgent.query} with a
  * character description. It passes {@link CardCharacterAgentTool} to the
- * agent runner, which loads those tools from the registry. The model calls
- * `generate-image`. That tool calls Gemini or OpenAI and paints four
- * portraits, weakest to strongest.
+ * agent runner, which loads `consult-productnow` and `generate-image`.
+ * `consult-productnow` reads the Lore document. The model uses that answer,
+ * then `generate-image` calls Gemini or OpenAI and paints four portraits,
+ * weakest to strongest.
  *
  * @example
  * ```typescript
@@ -97,6 +103,7 @@ export class CardCharacterAgent
         agentId: "card-character-generation-agent",
         instructions:
           new CardCharacterPromptRenderer().renderCardCharacterPrompt(input),
+        maxSteps: CARD_CHARACTER_COORDINATOR_STEPS,
         outputLabel: "Card character generation",
         prompt: input.prompt,
         readToolOutput: (raw) => raw,

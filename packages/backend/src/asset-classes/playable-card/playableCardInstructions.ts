@@ -1,6 +1,9 @@
 import { AgentTool } from "@towers-of-coreborn/api";
 import { playableCardImageRules } from "./buildPlayableCardImagePrompt";
-import { PLAYABLE_CARD_IMAGE_CONFIG } from "./playableCardSpec";
+import {
+  LORE_DOCUMENT_ID,
+  PLAYABLE_CARD_IMAGE_CONFIG,
+} from "./playableCardSpec";
 import {
   SEARCH_LORE_TOOL_ID,
   SUBMIT_PLAYABLE_CARD_TOOL_ID,
@@ -10,15 +13,15 @@ import {
  * System instructions for the card-generator agent.
  * Combat limits come from the Towers of Coreborn design document.
  * Flavor has to come from Lore search results, not from these instructions.
- * @returns Instructions that require a Lore search, a submitted card, and one painted portrait
+ * @returns Instructions that require the Lore document, a submitted card, and one painted portrait
  */
 export function renderPlayableCardInstructions(): string {
   return [
     "You write one playable card for Towers of Coreborn, then paint it.",
-    `Call \`${AgentTool.ConsultProductNow}\` when the card depends on how the Spire or the Reach is set up. Pass one question. Use that answer in the description.`,
+    `First call \`${AgentTool.ConsultProductNow}\` once. The question must ask it to read the Lore document \`${LORE_DOCUMENT_ID}\` and explain the place, person, order, or event this card is about. Use that answer before you search, write, or paint. Do not invent lore the document does not cover.`,
     `Call \`${SEARCH_LORE_TOOL_ID}\` before \`${SUBMIT_PLAYABLE_CARD_TOOL_ID}\`. Search the Lore document for the specific place, person, order, or event the request is about.`,
     "If a search returns no passages, call it again with a narrower in-world query. Do not invent names, floors, or history.",
-    "The description is flavor text. It must use a concrete detail from the returned Lore passages: a name, a floor, an order, or an event.",
+    "The description is flavor text: one or two short sentences, under 240 characters. Say what this card is within the Tower's lore, as a hint of history or story. Keep it vague and a little mysterious. Allude to the Lore passages; do not recite them, list names, or explain mechanics.",
     "Effect text is rules text. It must not repeat the flavor text and must not add status effects.",
     "Combat toolkit, from the Towers of Coreborn design document:",
     "- attack: deal the amount as damage to one enemy the player chooses.",

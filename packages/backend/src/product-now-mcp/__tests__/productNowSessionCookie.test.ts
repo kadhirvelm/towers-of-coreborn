@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { UnauthorizedException } from "@nestjs/common";
 import type { Request } from "express";
 import {
+  productNowSessionCookieOptions,
   readProductNowSessionId,
   requireProductNowSessionId,
 } from "../productNowSessionCookie";
@@ -26,5 +27,20 @@ describe("productNow session cookie", () => {
       message = error instanceof UnauthorizedException ? error.message : "";
     }
     expect(message).toBe("Connect ProductNow first");
+  });
+
+  test("sends the session cookie on cross-origin HTTPS API calls", () => {
+    const options = productNowSessionCookieOptions("https://localhost:8080");
+
+    expect(options.httpOnly).toBe(true);
+    expect(options.sameSite).toBe("none");
+    expect(options.secure).toBe(true);
+  });
+
+  test("keeps an HTTP session cookie same-site", () => {
+    const options = productNowSessionCookieOptions("http://localhost:8080");
+
+    expect(options.sameSite).toBe("lax");
+    expect(options.secure).toBe(false);
   });
 });
