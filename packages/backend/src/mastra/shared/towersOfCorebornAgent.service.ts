@@ -2,6 +2,7 @@ import { type AgentExecutionOptionsBase, ToolsInput } from "@mastra/core/agent";
 import { RequestContext } from "@mastra/core/request-context";
 import { FullOutput } from "@mastra/core/stream";
 import {
+  HttpException,
   Injectable,
   InternalServerErrorException,
   Logger,
@@ -100,6 +101,26 @@ export interface TowersOfCorebornAgentChatInput {
 }
 
 /**
+ * Standard multi-tool asset-agent chat. Catalog tools are resolved here and
+ * request-scoped tools are supplied by the caller.
+ */
+export interface AssetClassAgentChatInput {
+  abortSignal?: AbortSignal;
+  /** Stable id and display name of the Mastra agent */
+  agentId: string;
+  /** Registry tools this agent may call */
+  catalogTools: AgentToolSelection;
+  instructions: string;
+  maxSteps: number;
+  /** Tools that close over this request's mutable state or credentials */
+  ownedTools?: ToolsInput;
+  prompt: string;
+  /** Overrides the standard ten-minute timeout for long plans */
+  timeoutMs?: number;
+  toolCallConcurrency?: number;
+}
+
+/**
  * A tool call that threw during a chat session. Mastra reports these to the
  * model as tool errors (so the model can apologize or retry) instead of
  * throwing, which means callers must inspect this list to detect failures.
@@ -179,6 +200,8 @@ interface GenerationCoordinatorInput<ToolOutput> {
   readToolOutput: (rawResult: unknown) => ToolOutput;
   /** Steps for this run. Defaults to one tool call and a short reply. */
   maxSteps?: number;
+  /** Other tools that must complete before the required output is accepted. */
+  supportingToolIds?: string[];
   /** Tool whose result this run requires */
   toolId: string;
 }
@@ -214,7 +237,7 @@ export interface TowersOfCorebornAgentSingleToolChatResult<ToolOutput> {
 }
 
 /** The default timeout for a TowersOfCorebornAgent agent sessions */
-const DEFAULT_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes
+const DEFAULT_TIMEOUT_MS = 15 * 60 * 1000;
 
 /**
  * Coordinator model for asset-class agents. A class can pass a different model
@@ -244,7 +267,7 @@ export class TowersOfCorebornAgentService {
   public logger = new Logger(TowersOfCorebornAgentService.name);
 
   public constructor(
-    public readonly towersOfCorebornAgentToolRegistry: TowersOfCorebornAgentToolRegistry,
+    private readonly towersOfCorebornAgentToolRegistry: TowersOfCorebornAgentToolRegistry,
     public readonly configurationService: ConfigurationService,
   ) {}
 
@@ -354,6 +377,39 @@ export class TowersOfCorebornAgentService {
   }
 
   /**
+   * Runs a multi-tool asset agent with the standard coordinator model.
+   * Agents name catalog tools and provide only their request-scoped tools;
+   * registry access and config assembly stay inside this service.
+   * @param input - Agent identity, prompt, catalog tools, and owned tools
+   * @returns Generated text plus observed tool results and errors
+   */
+  public async runAssetClassAgentChat(
+    input: AssetClassAgentChatInput,
+  ): Promise<TowersOfCorebornAgentChatResults> {
+    return this.streamChat({
+      abortSignal: input.abortSignal,
+      agentConfig: {
+        id: input.agentId,
+        instructions: input.instructions,
+        maxSteps: input.maxSteps,
+        model: [{ model: ASSET_CLASS_COORDINATOR_MODEL }],
+        name: input.agentId,
+        ...(input.toolCallConcurrency === undefined
+          ? {}
+          : { toolCallConcurrency: input.toolCallConcurrency }),
+      },
+      prompt: input.prompt,
+      timeoutMs: input.timeoutMs,
+      tools: {
+        ...this.towersOfCorebornAgentToolRegistry.buildTools(
+          input.catalogTools,
+        ),
+        ...(input.ownedTools ?? {}),
+      },
+    });
+  }
+
+  /**
    * Runs a coordinator agent that must call exactly one caller-owned tool.
    * Use this when the tool is not in the shared catalog. Catalog tools are
    * passed as an enum to {@link TowersOfCorebornAgentService#runGenerationCoordinator}.
@@ -412,6 +468,7 @@ export class TowersOfCorebornAgentService {
       outputLabel: input.outputLabel,
       readToolOutput: input.readToolOutput,
       result,
+      supportingToolIds: input.supportingToolIds,
       toolId: input.toolId,
     });
   }
@@ -534,25 +591,42 @@ export class TowersOfCorebornAgentService {
         throw new GenerationCancelledException();
       }
 
-      if (output.error != null || output.finishReason === "error") {
+      if (
+        (output.error != null || output.finishReason === "error") &&
+        !hasToolActivity(toolResults, toolErrors)
+      ) {
         throw new InternalServerErrorException(
-          output.error ??
-            `Agent ${input.agentConfig.name} returned an error: ${output.finishReason}`,
+          `Agent ${input.agentConfig.name} returned an error: ${formatStreamFailure(output.error, output.finishReason)}`,
         );
       }
 
-      return {
-        aborted: output.finishReason === "tripwire",
-        text: accumulatedText,
+      if (output.error != null || output.finishReason === "error") {
+        this.logger.warn(
+          `${input.agentConfig.name} ended with ${formatStreamFailure(output.error, output.finishReason)} after tool calls; keeping those results`,
+        );
+      }
+
+      return chatResults(
+        accumulatedText,
+        output.finishReason === "tripwire",
         toolErrors,
         toolResults,
-      };
+      );
     } catch (streamError) {
       if (isGenerationAbort(streamError, input.abortSignal)) {
         throw new GenerationCancelledException();
       }
+      if (streamError instanceof HttpException) {
+        throw streamError;
+      }
+      if (hasToolActivity(toolResults, toolErrors)) {
+        this.logger.warn(
+          `${input.agentConfig.name} stream ended after tool calls: ${formatStreamFailure(streamError)}; keeping those results`,
+        );
+        return chatResults(accumulatedText, false, toolErrors, toolResults);
+      }
       throw new InternalServerErrorException(
-        `Agent ${input.agentConfig.name} stream failed: ${streamError instanceof Error ? streamError.message : String(streamError)}`,
+        `Agent ${input.agentConfig.name} stream failed: ${formatStreamFailure(streamError)}`,
       );
     }
   }
@@ -628,4 +702,48 @@ function productNowRequestContext(): RequestContext | undefined {
   const requestContext = new RequestContext();
   requestContext.setRaw(PRODUCT_NOW_SESSION_REQUEST_KEY, sessionId);
   return requestContext;
+}
+
+/**
+ * @param toolResults - Tool calls that returned
+ * @param toolErrors - Tool calls that threw
+ * @returns Whether the run already did tool work worth keeping
+ */
+function hasToolActivity(
+  toolResults: TowersOfCorebornAgentToolResult[],
+  toolErrors: TowersOfCorebornAgentToolError[],
+): boolean {
+  return toolResults.length > 0 || toolErrors.length > 0;
+}
+
+/**
+ * @param text - Text streamed before the run ended
+ * @param aborted - Whether Mastra marked the run as a tripwire
+ * @param toolErrors - Tool calls that threw
+ * @param toolResults - Tool calls that returned
+ * @returns The chat result callers already know how to inspect
+ */
+function chatResults(
+  text: string,
+  aborted: boolean,
+  toolErrors: TowersOfCorebornAgentToolError[],
+  toolResults: TowersOfCorebornAgentToolResult[],
+): TowersOfCorebornAgentChatResults {
+  return { aborted, text, toolErrors, toolResults };
+}
+
+/**
+ * @param error - Finish payload or thrown stream error
+ * @param finishReason - Mastra finish reason, when the stream completed
+ * @returns A single-line description
+ */
+function formatStreamFailure(error: unknown, finishReason?: string): string {
+  const message = formatToolErrorMessage(error);
+  if (finishReason === undefined || finishReason === "") {
+    return message;
+  }
+  if (message === "" || message === "undefined" || message === "null") {
+    return finishReason;
+  }
+  return `${finishReason}: ${message}`;
 }

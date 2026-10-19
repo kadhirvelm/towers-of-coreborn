@@ -1,105 +1,177 @@
 import { randomUUID } from "node:crypto";
 import { createTool } from "@mastra/core/tools";
-import { Injectable, InternalServerErrorException } from "@nestjs/common";
+import {
+  Injectable,
+  InternalServerErrorException,
+  Logger,
+} from "@nestjs/common";
+import {
+  AgentTool,
+  type CardCharacterLevelNumber,
+  type DungeonSlotKind,
+} from "@towers-of-coreborn/api";
+import { CARD_CHARACTER_LEVELS } from "src/asset-classes/card-character/cardCharacterSpec";
 import { runWithProductNowSession } from "src/product-now-mcp/productNowSessionContext";
 import { z } from "zod";
-import {
-  ASSET_CLASS_COORDINATOR_MODEL,
-  TowersOfCorebornAgentService,
-} from "../../shared/towersOfCorebornAgent.service";
-import { BattleBackgroundAgent } from "../battle-background/battleBackgroundAgent";
-import { CardCharacterAgent } from "../card-character/cardCharacterAgent";
-import { CardGeneratorAgent } from "../card-generator/cardGeneratorAgent";
+import { TowersOfCorebornAgentService } from "../../shared/towersOfCorebornAgent.service";
 import { GenerationAbortCoordinator } from "../generationAbort.coordinator";
-import {
-  GenerationCancelledException,
-  isGenerationAbort,
-  throwIfAborted,
-} from "../generationCancelled";
+import { isGenerationAbort, throwIfAborted } from "../generationCancelled";
 import type { QueryableAgent } from "../queryableAgent";
 
-export const CREATE_DUNGEON_BACKGROUND_TOOL_ID = "create-dungeon-background";
-export const CREATE_DUNGEON_CHARACTER_TOOL_ID = "create-dungeon-character";
-export const CREATE_DUNGEON_CARD_TOOL_ID = "create-dungeon-card";
+export const PLAN_DUNGEON_BACKGROUND_TOOL_ID = "plan-dungeon-background";
+export const PLAN_DUNGEON_CHARACTER_TOOL_ID = "plan-dungeon-character";
+export const PLAN_DUNGEON_CARD_TOOL_ID = "plan-dungeon-card";
+export const PLAN_DUNGEON_ENEMY_TOOL_ID = "plan-dungeon-enemy";
 
-const MAX_BACKGROUNDS = 3;
-const MAX_CHARACTERS = 5;
-const MAX_CARDS = 15;
-const DUNGEON_COORDINATOR_MAX_STEPS = 8;
-const DUNGEON_COORDINATOR_TIMEOUT_MS = 60 * 60 * 1000;
+const DUNGEON_BACKGROUND_COUNT = 2;
+const DUNGEON_CHARACTER_COUNT = 3;
+/** One playable card for each portrait level of a character. */
+const DUNGEON_CARDS_PER_CHARACTER = CARD_CHARACTER_LEVELS.length;
+const DUNGEON_ENEMY_COUNT = 2;
 
-const promptSchema = z.object({
-  prompt: z.string().trim().min(1).max(4000),
-});
+/**
+ * Tool calls one plan must make, plus one Lore lookup. Each call can take
+ * its own model step.
+ */
+const DUNGEON_PLAN_CALLS =
+  1 +
+  DUNGEON_BACKGROUND_COUNT +
+  DUNGEON_CHARACTER_COUNT +
+  DUNGEON_CHARACTER_COUNT * DUNGEON_CARDS_PER_CHARACTER +
+  DUNGEON_ENEMY_COUNT;
 
-const cardPromptSchema = promptSchema.extend({
-  characterSetId: z
+/** Extra steps for a closing summary and a retry of one call. */
+const DUNGEON_COORDINATOR_STEP_SLACK = 6;
+const DUNGEON_COORDINATOR_MAX_STEPS =
+  DUNGEON_PLAN_CALLS + DUNGEON_COORDINATOR_STEP_SLACK;
+const DUNGEON_COORDINATOR_TIMEOUT_MS = 10 * 60 * 1000;
+const DUNGEON_TOOL_CALL_CONCURRENCY = 1;
+const DUNGEON_PROMPTS_READY = "The dungeon prompts are ready.";
+
+const titledPromptSchema = z.object({
+  prompt: z
     .string()
-    .describe("The setId returned by create-dungeon-character."),
+    .trim()
+    .min(1)
+    .max(4000)
+    .describe("The full prompt the asset agent should receive."),
+  title: z.string().trim().min(1).max(80).describe("Short display name."),
 });
 
-const backgroundOutputSchema = z.object({ backgroundId: z.string() });
-const characterOutputSchema = z.object({ characterSetId: z.string() });
-const cardOutputSchema = z.object({
-  cardId: z.string(),
-  characterSetId: z.string(),
+const cardPromptSchema = titledPromptSchema.extend({
+  characterSlotId: z
+    .string()
+    .describe("The characterSlotId returned by plan-dungeon-character."),
+  level: z
+    .union([z.literal(1), z.literal(2), z.literal(3), z.literal(4)])
+    .describe("Portrait level this card matches, from 1 through 4."),
 });
+
+const backgroundOutputSchema = z.object({ slotId: z.string() });
+const characterOutputSchema = z.object({ characterSlotId: z.string() });
+const cardOutputSchema = z.object({
+  characterSlotId: z.string(),
+  level: z.number().int(),
+  slotId: z.string(),
+});
+const enemyOutputSchema = z.object({ slotId: z.string() });
 
 const DUNGEON_COORDINATOR_INSTRUCTIONS = `
-You are the dungeon art director for Towers of Coreborn. Turn the user's broad
-idea into a coherent set of battle rooms, named characters, and playable cards.
+You are the dungeon art director for Towers of Coreborn. Turn one broad idea
+into a package of prompts. Do not create images, cards, or enemies yourself.
+Each prompt is the complete request another agent will receive later.
 
-Use the creation tools; never merely describe assets. Unless the user gives
-explicit counts, create exactly 2 backgrounds, 3 characters, and 1 card for
-each character. Explicit requests may use 1-3 backgrounds, 1-5 characters, and
-1-3 cards per character. Create backgrounds and characters first. Then create
-cards using the exact characterSetId returned by create-dungeon-character.
+Call consult-productnow once before planning, and ground the package in what
+it finds about this place, its factions, and its threats.
 
-Keep every prompt grounded in one shared location, faction, threat, color
-palette, and story hook. Character prompts must make each role distinct. Card
-prompts must name the intended character and describe an action, technique, or
-piece of equipment that belongs to them. Every generated character must receive
-at least one card. Finish with a short summary of the dungeon setup and do not
-invent asset ids or URLs.
+Then record exactly 2 backgrounds, 3 characters, 4 cards for each character,
+and 2 enemies. These counts are fixed even if the user asks for different
+counts. Plan backgrounds, characters, and enemies before cards. Cards must
+use the exact characterSlotId returned by plan-dungeon-character.
+
+Keep every prompt in one shared location, faction, threat, color palette, and
+story hook. Background prompts describe one battle room each. Character prompts
+make each role distinct and describe a person who can be painted at four
+strengths. Card prompts name that character and one technique that belongs to
+them. For each character, plan levels 1, 2, 3, and 4 in that order. Level 1
+chooses the technique. Levels 2 through 4 keep its aether cost and effect
+kinds, and raise the amounts. Enemy prompts describe distinct threats that
+belong in these rooms, how each one fights, and that they should vary in
+health. Finish with a short summary of the setup. Do not invent asset ids
+or URLs.
 `;
 
-/** Input for one dungeon coordinator run. */
+/** Input for one dungeon planning run. */
 export interface DungeonCoordinatorInput {
   generationId: string;
   prompt: string;
   sessionId: string;
 }
 
-/** Generated asset ids grouped by character ownership. */
+/** Fields shared by every prompt the planner records for a later agent. */
+interface PlannedDungeonSlotBase {
+  id: string;
+  prompt: string;
+  title: string;
+}
+
+/** A planned room, character, or enemy prompt. */
+export type PlannedDungeonAssetSlot = {
+  [Kind in Exclude<
+    DungeonSlotKind,
+    "playable-card"
+  >]: PlannedDungeonSlotBase & {
+    kind: Kind;
+  };
+}[Exclude<DungeonSlotKind, "playable-card">];
+
+/** A planned card prompt with required ownership and progression level. */
+export interface PlannedDungeonCardSlot extends PlannedDungeonSlotBase {
+  characterSlotId: string;
+  kind: "playable-card";
+  level: CardCharacterLevelNumber;
+}
+
+/** One prompt the planner recorded for a later agent. */
+export type PlannedDungeonSlot =
+  | PlannedDungeonAssetSlot
+  | PlannedDungeonCardSlot;
+
+/** Prompts for a dungeon package, with no assets created yet. */
 export interface DungeonCoordinatorResult {
-  backgroundIds: string[];
-  characters: Array<{ cardIds: string[]; setId: string }>;
+  slots: PlannedDungeonSlot[];
   summary: string;
 }
 
-interface DungeonGenerationState {
-  backgroundIds: string[];
-  characters: Map<string, { cardIds: string[]; prompt: string }>;
+interface PlannedCharacter {
+  cards: PlannedDungeonSlot[];
+  slot: PlannedDungeonSlot;
+}
+
+interface DungeonPlanState {
+  backgrounds: PlannedDungeonSlot[];
+  characters: Map<string, PlannedCharacter>;
+  enemies: PlannedDungeonSlot[];
 }
 
 /**
- * Meta-agent that delegates a dungeon prompt to the existing asset agents.
+ * Plans a dungeon package. It writes prompts for the existing asset agents
+ * and does not call them.
  */
 @Injectable()
 export class DungeonCoordinatorAgent
   implements QueryableAgent<DungeonCoordinatorInput, DungeonCoordinatorResult>
 {
+  private readonly logger = new Logger(DungeonCoordinatorAgent.name);
+
   public constructor(
     private readonly agents: TowersOfCorebornAgentService,
-    private readonly backgrounds: BattleBackgroundAgent,
-    private readonly characters: CardCharacterAgent,
-    private readonly cards: CardGeneratorAgent,
     private readonly generationAbort: GenerationAbortCoordinator,
   ) {}
 
   /**
-   * Stops the coordinator and any child generation currently called by it.
-   * @param generationId - Parent generation id
+   * Stops an in-flight planning run.
+   * @param generationId - Planning generation id
    * @returns Whether the stop was recorded
    */
   public abort(generationId: string): Promise<boolean> {
@@ -107,180 +179,167 @@ export class DungeonCoordinatorAgent
   }
 
   /**
-   * Creates a connected set of dungeon assets from one broad prompt.
-   * @param input - Prompt, ProductNow session, and cancellable generation id
-   * @returns Generated ids and coordinator summary
+   * Writes the prompts for one dungeon package.
+   * @param input - Broad idea, ProductNow session, and cancellable generation id
+   * @returns The prompts and a short summary
    */
   public async query(
     input: DungeonCoordinatorInput,
   ): Promise<DungeonCoordinatorResult> {
-    const run = await this.generationAbort.begin(input.generationId);
-    const state: DungeonGenerationState = {
-      backgroundIds: [],
-      characters: new Map(),
-    };
+    return this.generationAbort.run(input.generationId, async (signal) => {
+      const state: DungeonPlanState = {
+        backgrounds: [],
+        characters: new Map(),
+        enemies: [],
+      };
 
-    try {
-      throwIfAborted(run.signal);
-      const result = await runWithProductNowSession(input.sessionId, () =>
-        this.agents.runChatWithTools({
-          abortSignal: run.signal,
-          agentConfig: {
-            id: "dungeon-coordinator-agent",
+      try {
+        const result = await runWithProductNowSession(input.sessionId, () =>
+          this.agents.runAssetClassAgentChat({
+            abortSignal: signal,
+            agentId: "dungeon-coordinator-agent",
+            catalogTools: [AgentTool.ConsultProductNow],
             instructions: DUNGEON_COORDINATOR_INSTRUCTIONS,
             maxSteps: DUNGEON_COORDINATOR_MAX_STEPS,
-            model: [{ model: ASSET_CLASS_COORDINATOR_MODEL }],
-            name: "dungeon-coordinator-agent",
-            toolCallConcurrency: 3,
-          },
-          prompt: `Set up a dungeon from this request:\n${input.prompt}`,
-          timeoutMs: DUNGEON_COORDINATOR_TIMEOUT_MS,
-          tools: this.createTools(state, input.sessionId, run.signal),
-        }),
-      );
-      throwIfAborted(run.signal);
-      requireSuccessfulDungeon(result.toolErrors, state);
-      return {
-        backgroundIds: state.backgroundIds,
-        characters: [...state.characters].map(([setId, character]) => ({
-          cardIds: character.cardIds,
-          setId,
-        })),
-        summary: result.text,
-      };
-    } catch (error) {
-      if (isGenerationAbort(error, run.signal)) {
-        throw new GenerationCancelledException();
+            ownedTools: this.createTools(state),
+            prompt: `Plan a dungeon package from this request:\n${input.prompt}`,
+            timeoutMs: DUNGEON_COORDINATOR_TIMEOUT_MS,
+            toolCallConcurrency: DUNGEON_TOOL_CALL_CONCURRENCY,
+          }),
+        );
+        throwIfAborted(signal);
+        requireSuccessfulPlan(result.toolErrors, state);
+        return planResult(state, result.text);
+      } catch (error) {
+        if (isGenerationAbort(error, signal) || !isCompletePlan(state)) {
+          throw error;
+        }
+        this.logger.warn(
+          `Dungeon prompts were written, but the coordinator ended with: ${error instanceof Error ? error.message : String(error)}`,
+        );
+        return planResult(state, "");
       }
-      throw error;
-    } finally {
-      await run.end();
-    }
+    });
   }
 
   /**
-   * Builds request-scoped tools that invoke the existing asset agents.
-   * @param state - Successful child outputs for this dungeon
-   * @param sessionId - ProductNow browser session for playable cards
-   * @param signal - Parent cancellation signal
-   * @returns Three Mastra tools for backgrounds, characters, and cards
+   * Builds the tools that record prompts for this plan.
+   * @param state - Prompts recorded so far
+   * @returns Four Mastra tools for rooms, characters, cards, and enemies
    */
-  private createTools(
-    state: DungeonGenerationState,
-    sessionId: string,
-    signal: AbortSignal,
-  ) {
+  private createTools(state: DungeonPlanState) {
     return {
-      [CREATE_DUNGEON_BACKGROUND_TOOL_ID]: createTool({
+      [PLAN_DUNGEON_BACKGROUND_TOOL_ID]: createTool({
         description:
-          "Create and store one battle-room background. Returns its real stored id.",
-        execute: async (input: z.infer<typeof promptSchema>) => {
+          "Record the prompt for one battle-room background. Does not paint it.",
+        execute: async (input: z.infer<typeof titledPromptSchema>) => {
           requireCapacity(
-            state.backgroundIds.length,
-            MAX_BACKGROUNDS,
+            state.backgrounds.length,
+            DUNGEON_BACKGROUND_COUNT,
             "background",
           );
-          const result = await runChildGeneration(
-            signal,
-            (generationId) =>
-              this.backgrounds.query({ generationId, prompt: input.prompt }),
-            (generationId) => this.backgrounds.abort(generationId),
-          );
-          state.backgroundIds.push(result.id);
-          return { backgroundId: result.id };
+          const slot = createSlot("battle-background", input);
+          state.backgrounds.push(slot);
+          return { slotId: slot.id };
         },
-        id: CREATE_DUNGEON_BACKGROUND_TOOL_ID,
-        inputSchema: promptSchema,
+        id: PLAN_DUNGEON_BACKGROUND_TOOL_ID,
+        inputSchema: titledPromptSchema,
         outputSchema: backgroundOutputSchema,
       }),
-      [CREATE_DUNGEON_CHARACTER_TOOL_ID]: createTool({
+      [PLAN_DUNGEON_CHARACTER_TOOL_ID]: createTool({
         description:
-          "Create and store one four-level character portrait set. Returns the setId required when creating that character's cards.",
-        execute: async (input: z.infer<typeof promptSchema>) => {
-          requireCapacity(state.characters.size, MAX_CHARACTERS, "character");
-          const result = await runChildGeneration(
-            signal,
-            (generationId) =>
-              this.characters.query({ generationId, prompt: input.prompt }),
-            (generationId) => this.characters.abort(generationId),
+          "Record the prompt for one four-level character. Returns the characterSlotId required when planning that character's cards. Does not paint the character.",
+        execute: async (input: z.infer<typeof titledPromptSchema>) => {
+          requireCapacity(
+            state.characters.size,
+            DUNGEON_CHARACTER_COUNT,
+            "character",
           );
-          state.characters.set(result.setId, {
-            cardIds: [],
-            prompt: input.prompt,
-          });
-          return { characterSetId: result.setId };
+          const slot = createSlot("card-character", input);
+          state.characters.set(slot.id, { cards: [], slot });
+          return { characterSlotId: slot.id };
         },
-        id: CREATE_DUNGEON_CHARACTER_TOOL_ID,
-        inputSchema: promptSchema,
+        id: PLAN_DUNGEON_CHARACTER_TOOL_ID,
+        inputSchema: titledPromptSchema,
         outputSchema: characterOutputSchema,
       }),
-      [CREATE_DUNGEON_CARD_TOOL_ID]: createTool({
+      [PLAN_DUNGEON_CARD_TOOL_ID]: createTool({
         description:
-          "Create and store one lore-backed playable card for a character created during this run.",
+          "Record the next card prompt for a character. Level 1 chooses the technique. Each later level keeps that aether cost and those effect kinds, and raises the amounts. Plan levels 1 through 4 in order. Does not write the card.",
         execute: async (input: z.infer<typeof cardPromptSchema>) => {
-          const character = state.characters.get(input.characterSetId);
+          const character = state.characters.get(input.characterSlotId);
           if (character === undefined) {
             throw new InternalServerErrorException(
-              "Create the character first, then pass its exact setId.",
+              "Plan the character first, then pass its exact characterSlotId.",
             );
           }
-          const cardCount = [...state.characters.values()].reduce(
-            (total, value) => total + value.cardIds.length,
-            0,
+          requireCapacity(
+            character.cards.length,
+            DUNGEON_CARDS_PER_CHARACTER,
+            "card for this character",
           );
-          requireCapacity(cardCount, MAX_CARDS, "card");
-          const result = await runChildGeneration(
-            signal,
-            (generationId) =>
-              this.cards.query({
-                generationId,
-                prompt: `Character:\n${character.prompt}\n\nCard request:\n${input.prompt}`,
-                sessionId,
-              }),
-            (generationId) => this.cards.abort(generationId),
-          );
-          character.cardIds.push(result.cardId);
+          const nextLevel = character.cards.length + 1;
+          if (input.level !== nextLevel) {
+            throw new InternalServerErrorException(
+              `Plan level ${nextLevel} for this character before level ${input.level}.`,
+            );
+          }
+          const slot: PlannedDungeonCardSlot = {
+            characterSlotId: input.characterSlotId,
+            id: randomUUID(),
+            kind: "playable-card",
+            level: input.level,
+            prompt: input.prompt,
+            title: input.title,
+          };
+          character.cards.push(slot);
           return {
-            cardId: result.cardId,
-            characterSetId: input.characterSetId,
+            characterSlotId: input.characterSlotId,
+            level: input.level,
+            slotId: slot.id,
           };
         },
-        id: CREATE_DUNGEON_CARD_TOOL_ID,
+        id: PLAN_DUNGEON_CARD_TOOL_ID,
         inputSchema: cardPromptSchema,
         outputSchema: cardOutputSchema,
+      }),
+      [PLAN_DUNGEON_ENEMY_TOOL_ID]: createTool({
+        description:
+          "Record the prompt for one enemy. Describe how it fights and that its health should fit the rooms. Does not paint it.",
+        execute: async (input: z.infer<typeof titledPromptSchema>) => {
+          requireCapacity(state.enemies.length, DUNGEON_ENEMY_COUNT, "enemy");
+          const slot = createSlot("enemy", input);
+          state.enemies.push(slot);
+          return { slotId: slot.id };
+        },
+        id: PLAN_DUNGEON_ENEMY_TOOL_ID,
+        inputSchema: titledPromptSchema,
+        outputSchema: enemyOutputSchema,
       }),
     };
   }
 }
 
 /**
- * Runs a child agent with its own generation id and links parent cancellation.
- * @param signal - Parent signal
- * @param query - Starts the child with the generated id
- * @param abort - Stops the child by id
- * @returns Child agent result
+ * @param kind - Agent this prompt is for
+ * @param input - Title and prompt from the planner
+ * @returns A slot with a new id
  */
-async function runChildGeneration<Result>(
-  signal: AbortSignal,
-  query: (generationId: string) => Promise<Result>,
-  abort: (generationId: string) => Promise<boolean>,
-): Promise<Result> {
-  throwIfAborted(signal);
-  const generationId = randomUUID();
-  const stopChild = () => {
-    void abort(generationId);
-  };
-  signal.addEventListener("abort", stopChild, { once: true });
-  try {
-    return await query(generationId);
-  } finally {
-    signal.removeEventListener("abort", stopChild);
-  }
+function createSlot<Kind extends Exclude<DungeonSlotKind, "playable-card">>(
+  kind: Kind,
+  input: { prompt: string; title: string },
+): Extract<PlannedDungeonAssetSlot, { kind: Kind }> {
+  return {
+    id: randomUUID(),
+    kind,
+    prompt: input.prompt,
+    title: input.title,
+  } as Extract<PlannedDungeonAssetSlot, { kind: Kind }>;
 }
 
 /**
- * Prevents an agent from creating an unbounded number of expensive assets.
- * @param current - Number already created
+ * Prevents a plan from recording an unbounded number of prompts.
+ * @param current - Number already recorded
  * @param maximum - Maximum allowed for this asset kind
  * @param label - Human-readable asset kind
  */
@@ -291,40 +350,71 @@ function requireCapacity(
 ): void {
   if (current >= maximum) {
     throw new InternalServerErrorException(
-      `A dungeon can create at most ${maximum} ${label}s.`,
+      `A dungeon can plan at most ${maximum} ${label}s.`,
     );
   }
 }
 
 /**
- * Ensures the coordinator produced a usable setup.
+ * Ensures the planner recorded a usable package. A call that failed and was
+ * later retried successfully does not fail the plan.
  * @param toolErrors - Tool failures observed by the runner
- * @param state - Successful generated assets
+ * @param state - Prompts recorded so far
+ * @throws InternalServerErrorException when prompts are missing
  */
-function requireSuccessfulDungeon(
+function requireSuccessfulPlan(
   toolErrors: Array<{ errorMessage: string; toolName: string }>,
-  state: DungeonGenerationState,
+  state: DungeonPlanState,
 ): void {
-  const failedCreation = toolErrors.find((error) =>
-    error.toolName.startsWith("create-dungeon-"),
+  if (isCompletePlan(state)) {
+    return;
+  }
+  const failed = [...toolErrors]
+    .reverse()
+    .find((error) => error.toolName.startsWith("plan-dungeon-"));
+  if (failed !== undefined) {
+    throw new InternalServerErrorException(
+      `Dungeon planning failed in ${failed.toolName}: ${failed.errorMessage}`,
+    );
+  }
+  throw new InternalServerErrorException(
+    `Dungeon planning must record exactly ${DUNGEON_BACKGROUND_COUNT} backgrounds, ${DUNGEON_CHARACTER_COUNT} characters, and ${DUNGEON_ENEMY_COUNT} enemies, with ${DUNGEON_CARDS_PER_CHARACTER} cards for every character.`,
   );
-  if (failedCreation !== undefined) {
-    throw new InternalServerErrorException(
-      `Dungeon generation failed in ${failedCreation.toolName}: ${failedCreation.errorMessage}`,
-    );
+}
+
+/**
+ * @param state - Prompts recorded by the planning tools
+ * @returns Whether every required room, character, card, and enemy prompt exists
+ */
+function isCompletePlan(state: DungeonPlanState): boolean {
+  const cardsComplete = [...state.characters.values()].every(
+    (character) => character.cards.length === DUNGEON_CARDS_PER_CHARACTER,
+  );
+  return (
+    state.backgrounds.length === DUNGEON_BACKGROUND_COUNT &&
+    state.characters.size === DUNGEON_CHARACTER_COUNT &&
+    state.enemies.length === DUNGEON_ENEMY_COUNT &&
+    cardsComplete
+  );
+}
+
+/**
+ * @param state - Prompts recorded by the planning tools
+ * @param summary - Coordinator closing text, when it had a step left to write one
+ * @returns Rooms, then each character with that character's cards, then enemies
+ */
+function planResult(
+  state: DungeonPlanState,
+  summary: string,
+): DungeonCoordinatorResult {
+  const text = summary.trim();
+  const slots: PlannedDungeonSlot[] = [...state.backgrounds];
+  for (const character of state.characters.values()) {
+    slots.push(character.slot, ...character.cards);
   }
-  if (state.backgroundIds.length === 0 || state.characters.size === 0) {
-    throw new InternalServerErrorException(
-      "Dungeon generation must create at least one background and one character.",
-    );
-  }
-  if (
-    [...state.characters.values()].some(
-      (character) => character.cardIds.length === 0,
-    )
-  ) {
-    throw new InternalServerErrorException(
-      "Dungeon generation must create at least one card for every character.",
-    );
-  }
+  slots.push(...state.enemies);
+  return {
+    slots,
+    summary: text === "" ? DUNGEON_PROMPTS_READY : text,
+  };
 }

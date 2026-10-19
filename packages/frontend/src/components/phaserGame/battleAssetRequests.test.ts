@@ -21,16 +21,27 @@ describe("listBattleAssetRequests", () => {
         ...BATTLE_LOADOUT,
         cards: [
           {
-            fallbackName: "Strike",
+            id: "strike",
             imageUrl: "/static/playable-cards/strike/card.webp",
             manifestUrl: "/static/playable-cards/strike/manifest.json",
+            rules: BATTLE_LOADOUT.cards[0]?.rules ?? {
+              aetherCost: 1,
+              effects: [],
+              name: "Strike",
+            },
           },
           {
-            fallbackName: "Guard",
+            id: "guard",
             imageUrl: "",
             manifestUrl: "https://cdn.example/guard.json",
+            rules: BATTLE_LOADOUT.cards[1]?.rules ?? {
+              aetherCost: 1,
+              effects: [],
+              name: "Guard",
+            },
           },
         ],
+        deck: [],
         enemy: {
           ...BATTLE_LOADOUT.enemy,
           imageUrl: "/static/card-characters/beast/level-2.webp",
@@ -55,17 +66,17 @@ describe("listBattleAssetRequests", () => {
         url: "https://localhost:8080/static/card-characters/beast/level-2.webp",
       },
       {
-        key: cardImageKey(0),
+        key: cardImageKey("strike"),
         kind: "image",
         url: "https://localhost:8080/static/playable-cards/strike/card.webp",
       },
       {
-        key: cardManifestKey(0),
+        key: cardManifestKey("strike"),
         kind: "json",
         url: "https://localhost:8080/static/playable-cards/strike/manifest.json",
       },
       {
-        key: cardManifestKey(1),
+        key: cardManifestKey("guard"),
         kind: "json",
         url: "https://cdn.example/guard.json",
       },

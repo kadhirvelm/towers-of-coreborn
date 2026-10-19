@@ -308,13 +308,22 @@ function agentService(
   runChatWithTools: (input: ChatInput) => Promise<unknown>,
 ) {
   return {
-    runChatWithTools,
-    towersOfCorebornAgentToolRegistry: {
-      buildTools: () => ({
-        [AgentTool.ConsultProductNow]: { id: AgentTool.ConsultProductNow },
-        [AgentTool.GenerateImage]: { id: AgentTool.GenerateImage },
+    runAssetClassAgentChat: (input: {
+      abortSignal?: AbortSignal;
+      instructions: string;
+      ownedTools?: Record<string, ChatTool>;
+      prompt: string;
+    }) =>
+      runChatWithTools({
+        abortSignal: input.abortSignal,
+        agentConfig: { instructions: input.instructions },
+        prompt: input.prompt,
+        tools: {
+          [AgentTool.ConsultProductNow]: {} as ChatTool,
+          [AgentTool.GenerateImage]: {} as ChatTool,
+          ...(input.ownedTools ?? {}),
+        },
       }),
-    },
   } as never;
 }
 
@@ -327,6 +336,11 @@ function imageChat(filePath: string) {
     text: "Korr's First Bond is ready.",
     toolErrors: [],
     toolResults: [
+      {
+        result: { answer: loreExcerpt },
+        toolCallId: "lore-1",
+        toolName: AgentTool.ConsultProductNow,
+      },
       {
         result: {
           aspectRatio: "3:4",
@@ -349,12 +363,10 @@ function imageChat(filePath: string) {
 /**
  * @returns An abort coordinator that never stops a run
  */
-function idleAbort(): Pick<GenerationAbortCoordinator, "begin" | "stop"> {
+function idleAbort(): Pick<GenerationAbortCoordinator, "run" | "stop"> {
   return {
-    begin: async () => ({
-      end: async () => undefined,
-      signal: new AbortController().signal,
-    }),
+    run: async (_generationId, operation) =>
+      operation(new AbortController().signal),
     stop: async () => true,
   };
 }

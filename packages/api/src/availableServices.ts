@@ -4,6 +4,8 @@ import {
   BattleBackgroundServiceDefinition,
   CardCharacterServiceApi,
   CardCharacterServiceDefinition,
+  EnemyServiceApi,
+  EnemyServiceDefinition,
   PlayableCardServiceApi,
   PlayableCardServiceDefinition,
 } from "./services/assetClasses";
@@ -20,6 +22,7 @@ export type AvailableServices = {
   battleBackground: BattleBackgroundServiceApi;
   cardCharacter: CardCharacterServiceApi;
   dungeon: DungeonServiceApi;
+  enemy: EnemyServiceApi;
   playableCard: PlayableCardServiceApi;
   productNowMcp: ProductNowMcpServiceApi;
 };
@@ -32,6 +35,7 @@ export const AVAILABLE_SERVICES: AvailableServicesDefinition = {
   battleBackground: BattleBackgroundServiceDefinition,
   cardCharacter: CardCharacterServiceDefinition,
   dungeon: DungeonServiceDefinition,
+  enemy: EnemyServiceDefinition,
   playableCard: PlayableCardServiceDefinition,
   productNowMcp: ProductNowMcpServiceDefinition,
 };

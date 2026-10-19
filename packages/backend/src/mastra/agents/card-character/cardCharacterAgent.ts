@@ -9,11 +9,7 @@ import {
   deleteImageFiles,
 } from "src/mastra/tools/generateImageTool.service";
 import { GenerationAbortCoordinator } from "../generationAbort.coordinator";
-import {
-  GenerationCancelledException,
-  isGenerationAbort,
-  throwIfAborted,
-} from "../generationCancelled";
+import { throwIfAborted } from "../generationCancelled";
 import type { QueryableAgent } from "../queryableAgent";
 
 /**
@@ -94,38 +90,35 @@ export class CardCharacterAgent
    * @throws InternalServerErrorException when the tool failed, was never called, or returned an unusable set
    */
   public async query(input: CardCharacterInput): Promise<CardCharacterResult> {
-    const run = await this.generationAbort.begin(input.generationId);
-    let toolOutput: unknown;
-    try {
-      throwIfAborted(run.signal);
-      const result = await this.agents.runGenerationCoordinator({
-        abortSignal: run.signal,
-        agentId: "card-character-generation-agent",
-        instructions:
-          new CardCharacterPromptRenderer().renderCardCharacterPrompt(input),
-        maxSteps: CARD_CHARACTER_COORDINATOR_STEPS,
-        outputLabel: "Card character generation",
-        prompt: input.prompt,
-        readToolOutput: (raw) => raw,
-        toolId: CardCharacterAgentTool.GenerateImage,
-        tools: CardCharacterAgentTool,
-      });
-      toolOutput = result.toolOutput;
-      throwIfAborted(run.signal);
-      const portraits = readCardCharacterImageSet(toolOutput);
-      const saved = await this.cardCharacterToolService.saveGeneratedPortraits({
-        portraits,
-        sourcePrompt: input.prompt,
-      });
-      return { setId: saved.setId, summary: result.text };
-    } catch (error) {
-      await deleteImageFiles(collectImageFilePaths(toolOutput));
-      if (isGenerationAbort(error, run.signal)) {
-        throw new GenerationCancelledException();
+    return this.generationAbort.run(input.generationId, async (signal) => {
+      let toolOutput: unknown;
+      try {
+        const result = await this.agents.runGenerationCoordinator({
+          abortSignal: signal,
+          agentId: "card-character-generation-agent",
+          instructions:
+            new CardCharacterPromptRenderer().renderCardCharacterPrompt(input),
+          maxSteps: CARD_CHARACTER_COORDINATOR_STEPS,
+          outputLabel: "Card character generation",
+          prompt: input.prompt,
+          readToolOutput: (raw) => raw,
+          supportingToolIds: [CardCharacterAgentTool.ConsultProductNow],
+          toolId: CardCharacterAgentTool.GenerateImage,
+          tools: CardCharacterAgentTool,
+        });
+        toolOutput = result.toolOutput;
+        throwIfAborted(signal);
+        const portraits = readCardCharacterImageSet(toolOutput);
+        const saved =
+          await this.cardCharacterToolService.saveGeneratedPortraits({
+            portraits,
+            sourcePrompt: input.prompt,
+          });
+        return { setId: saved.setId, summary: result.text };
+      } catch (error) {
+        await deleteImageFiles(collectImageFilePaths(toolOutput));
+        throw error;
       }
-      throw error;
-    } finally {
-      await run.end();
-    }
+    });
   }
 }

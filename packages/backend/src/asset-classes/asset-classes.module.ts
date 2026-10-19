@@ -1,6 +1,7 @@
 import { Module } from "@nestjs/common";
 import { BattleBackgroundModule } from "./battle-background/battle-background.module";
 import { CardCharacterModule } from "./card-character/card-character.module";
+import { EnemyModule } from "./enemy/enemy.module";
 import { PlayableCardModule } from "./playable-card/playable-card.module";
 
 /**
@@ -8,6 +9,11 @@ import { PlayableCardModule } from "./playable-card/playable-card.module";
  * its own controller (`generate` + `list`), coordinator agent, tool, and storage folder.
  */
 @Module({
-  imports: [BattleBackgroundModule, CardCharacterModule, PlayableCardModule],
+  imports: [
+    BattleBackgroundModule,
+    CardCharacterModule,
+    EnemyModule,
+    PlayableCardModule,
+  ],
 })
 export class AssetClassesModule {}

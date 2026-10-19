@@ -27,6 +27,7 @@ describe("BattleBackgroundAgent", () => {
       async (input: {
         instructions: string;
         maxSteps?: number;
+        supportingToolIds?: string[];
         toolId: string;
         tools: unknown;
       }) => {
@@ -38,6 +39,9 @@ describe("BattleBackgroundAgent", () => {
         );
         expect(input.instructions).toContain("`generate-image`");
         expect(input.maxSteps).toBe(4);
+        expect(input.supportingToolIds).toEqual([
+          BattleBackgroundAgentTool.ConsultProductNow,
+        ]);
         expect(input.instructions).toContain("soft watercolor painting");
         expect(input.instructions).toContain("left third");
         return {
@@ -144,12 +148,10 @@ function backgroundImage(filePath: string) {
 /**
  * @returns An abort coordinator that never stops a run
  */
-function idleAbort(): Pick<GenerationAbortCoordinator, "begin" | "stop"> {
+function idleAbort(): Pick<GenerationAbortCoordinator, "run" | "stop"> {
   return {
-    begin: async () => ({
-      end: async () => undefined,
-      signal: new AbortController().signal,
-    }),
+    run: async (_generationId, operation) =>
+      operation(new AbortController().signal),
     stop: async () => true,
   };
 }

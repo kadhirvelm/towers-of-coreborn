@@ -1,51 +1,64 @@
 "use client";
 
 import type {
-  BattleBackgroundAsset,
-  CardCharacterSetAsset,
-  DungeonCharacter,
-  DungeonGeneration,
-  PlayableCardAsset,
-  PlayableCardKind,
+  DungeonBlueprint,
+  DungeonCardSlot,
+  DungeonSlot,
 } from "@towers-of-coreborn/api";
-import clsx from "clsx";
 import { Flex } from "@/lib/radix";
 import styles from "./Assets.module.scss";
+import { CopyableError } from "./CopyableError";
+import { DungeonSlotCard } from "./DungeonSlotCard";
 import { type PendingJob, PendingJobCard } from "./PendingJobCard";
 
-interface DungeonListProps {
-  onDismissJob: (id: string) => void;
-  onStopJob: (id: string) => void;
-  pendingJobs: PendingJob[];
-  results: readonly unknown[];
+interface DungeonListResult {
+  dungeons: DungeonBlueprint[];
 }
 
-const KIND_LABELS: Record<PlayableCardKind, string> = {
-  aether: "Aether",
-  attack: "Attack",
-  combo: "Combo",
-  defend: "Defend",
-  draw: "Draw",
-};
+interface DungeonListProps {
+  error: string | null;
+  isLoading: boolean;
+  onAssociateSlot?: (
+    dungeonId: string,
+    slotId: string,
+    assetId: string,
+  ) => Promise<string | null>;
+  onDismissJob: (id: string) => void;
+  onGenerateSlot?: (dungeonId: string, slot: DungeonSlot) => void;
+  onStopJob: (id: string) => void;
+  onStopSlot?: (generationId: string, assetClassId: string) => void;
+  pendingJobs: PendingJob[];
+  result: DungeonListResult | null;
+  slotJobs: PendingJob[];
+}
 
 /**
- * Dungeon workshop view: the running setup, then each finished setup from
- * this session. Rooms, characters, and cards are also stored in their own tabs.
- * @param pendingJobs - Dungeon generations still running or failed
- * @param results - Successful setups kept for this browser session
- * @param onDismissJob - Removes a failed job card
- * @param onStopJob - Stops a running generation
+ * Dungeon packages saved on the backend. Each prompt can start its agent
+ * or take an asset that already exists.
+ * @param pendingJobs - Package planning that is still running or failed
+ * @param slotJobs - Slot runs, shown on the prompt they belong to
+ * @param result - Saved packages from `list`
+ * @param error - List error, if any
+ * @param isLoading - Whether the package list is fetching
+ * @param onDismissJob - Removes a failed planning card
+ * @param onStopJob - Stops a planning run
+ * @param onGenerateSlot - Starts one prompt's agent
+ * @param onStopSlot - Stops that agent
+ * @param onAssociateSlot - Writes an existing asset into a slot
  */
 export function DungeonList({
+  error,
+  isLoading,
+  onAssociateSlot,
   onDismissJob,
+  onGenerateSlot,
   onStopJob,
+  onStopSlot,
   pendingJobs,
-  results,
+  result,
+  slotJobs,
 }: DungeonListProps) {
-  const dungeons = results.flatMap((result) => {
-    const dungeon = readDungeonGeneration(result);
-    return dungeon === undefined ? [] : [dungeon];
-  });
+  const dungeons = result?.dungeons ?? [];
   const hasContent = pendingJobs.length > 0 || dungeons.length > 0;
 
   return (
@@ -57,11 +70,19 @@ export function DungeonList({
         )}
       </Flex>
 
-      {!hasContent && (
+      {isLoading && result === null && (
+        <Flex align="center" gap="2">
+          <div className={styles.loadingSpinner} />
+          <span className={styles.loadingText}>Loading dungeons…</span>
+        </Flex>
+      )}
+      {error !== null && <CopyableError message={error} />}
+      {!isLoading && !hasContent && result !== null && (
         <Flex className={styles.emptyState}>
           <span>No dungeons yet</span>
           <span className={styles.emptyStateHint}>
-            describe a place to create its rooms, characters, and cards
+            describe a place to lay out its rooms, characters, cards, and
+            enemies
           </span>
         </Flex>
       )}
@@ -76,8 +97,15 @@ export function DungeonList({
               onStop={() => onStopJob(job.id)}
             />
           ))}
-          {dungeons.map((dungeon, index) => (
-            <DungeonSetup dungeon={dungeon} key={dungeonKey(dungeon, index)} />
+          {dungeons.map((dungeon) => (
+            <DungeonPackage
+              dungeon={dungeon}
+              key={dungeon.id}
+              onAssociateSlot={onAssociateSlot}
+              onGenerateSlot={onGenerateSlot}
+              onStopSlot={onStopSlot}
+              slotJobs={slotJobs}
+            />
           ))}
         </div>
       )}
@@ -85,193 +113,150 @@ export function DungeonList({
   );
 }
 
-interface DungeonSetupProps {
-  dungeon: DungeonGeneration;
+interface DungeonPackageProps {
+  dungeon: DungeonBlueprint;
+  onAssociateSlot?: DungeonListProps["onAssociateSlot"];
+  onGenerateSlot?: DungeonListProps["onGenerateSlot"];
+  onStopSlot?: DungeonListProps["onStopSlot"];
+  slotJobs: PendingJob[];
 }
 
 /**
- * One finished dungeon: its rooms, then each character with that character's cards.
- * @param dungeon - Generated setup returned by the coordinator
+ * One saved package: its JSON link, then rooms, enemies, and each character
+ * with that character's card prompts.
+ * @param dungeon - Package returned by the API
+ * @param slotJobs - Runs that should show as generating on their prompt
+ * @param onGenerateSlot - Starts one prompt's agent
+ * @param onStopSlot - Stops that agent
+ * @param onAssociateSlot - Writes an existing asset into a slot
  */
-function DungeonSetup({ dungeon }: DungeonSetupProps) {
+function DungeonPackage({
+  dungeon,
+  onAssociateSlot,
+  onGenerateSlot,
+  onStopSlot,
+  slotJobs,
+}: DungeonPackageProps) {
+  const rooms = dungeon.slots.filter(
+    (slot) => slot.kind === "battle-background",
+  );
+  const enemies = dungeon.slots.filter((slot) => slot.kind === "enemy");
+  const characters = dungeon.slots.filter(
+    (slot) => slot.kind === "card-character",
+  );
+  const readyCount = dungeon.slots.filter(
+    (slot) => slot.status === "ready",
+  ).length;
+
   return (
     <section className={styles.dungeonSetup}>
-      <p className={styles.dungeonSummary}>{dungeon.summary}</p>
+      <div className={styles.dungeonPackageHeader}>
+        <p className={styles.dungeonSummary}>{dungeon.summary}</p>
+        <span className={styles.promptSlotHint}>
+          {readyCount} of {dungeon.slots.length} ready
+        </span>
+        <a
+          className={styles.dungeonJsonLink}
+          href={dungeon.jsonUrl}
+          rel="noreferrer"
+          target="_blank"
+        >
+          View JSON
+        </a>
+      </div>
       <span className={styles.dungeonGroupLabel}>Rooms</span>
       <div className={styles.backgroundGrid}>
-        {dungeon.backgrounds.map((background) => (
-          <BackgroundPreview background={background} key={background.id} />
+        {rooms.map((slot) => (
+          <DungeonSlotCard
+            dungeonId={dungeon.id}
+            key={slot.id}
+            onAssociate={onAssociateSlot}
+            onGenerate={onGenerateSlot}
+            onStop={onStopSlot}
+            slot={slot}
+            slotJob={jobForSlot(slotJobs, slot.id)}
+            slots={dungeon.slots}
+          />
         ))}
       </div>
-      {dungeon.characters.map((entry) => (
-        <CharacterSetup entry={entry} key={entry.character.setId} />
+      <span className={styles.dungeonGroupLabel}>Enemies</span>
+      <div className={styles.enemyGrid}>
+        {enemies.map((slot) => (
+          <DungeonSlotCard
+            dungeonId={dungeon.id}
+            key={slot.id}
+            onAssociate={onAssociateSlot}
+            onGenerate={onGenerateSlot}
+            onStop={onStopSlot}
+            slot={slot}
+            slotJob={jobForSlot(slotJobs, slot.id)}
+            slots={dungeon.slots}
+          />
+        ))}
+      </div>
+      {characters.map((character) => (
+        <article className={styles.dungeonCharacter} key={character.id}>
+          <DungeonSlotCard
+            dungeonId={dungeon.id}
+            onAssociate={onAssociateSlot}
+            onGenerate={onGenerateSlot}
+            onStop={onStopSlot}
+            slot={character}
+            slotJob={jobForSlot(slotJobs, character.id)}
+            slots={dungeon.slots}
+          />
+          <div className={styles.playableCardGrid}>
+            {cardsForCharacter(dungeon.slots, character.id).map((slot) => (
+              <DungeonSlotCard
+                dungeonId={dungeon.id}
+                key={slot.id}
+                onAssociate={onAssociateSlot}
+                onGenerate={onGenerateSlot}
+                onStop={onStopSlot}
+                slot={slot}
+                slotJob={jobForSlot(slotJobs, slot.id)}
+                slots={dungeon.slots}
+              />
+            ))}
+          </div>
+        </article>
       ))}
     </section>
   );
 }
 
-interface BackgroundPreviewProps {
-  background: BattleBackgroundAsset;
+/**
+ * @param slots - Every slot in the package
+ * @param characterSlotId - Character the cards belong to
+ * @returns That character's cards from level 1 through 4
+ */
+function cardsForCharacter(
+  slots: readonly DungeonSlot[],
+  characterSlotId: string,
+): DungeonCardSlot[] {
+  return slots
+    .filter(
+      (slot): slot is DungeonCardSlot =>
+        slot.kind === "playable-card" &&
+        slot.characterSlotId === characterSlotId,
+    )
+    .sort((left, right) => (left.level ?? 0) - (right.level ?? 0));
 }
 
 /**
- * One generated battle room.
- * @param background - Stored background included in the dungeon
+ * @param jobs - In-flight slot runs
+ * @param slotId - Slot to match
+ * @returns The run for that slot, preferring one that is still going
  */
-function BackgroundPreview({ background }: BackgroundPreviewProps) {
-  return (
-    <article className={clsx(styles.backgroundCard, styles.dungeonStatic)}>
-      {/* biome-ignore lint/performance/noImgElement: generated backend asset */}
-      <img
-        alt={background.title}
-        className={styles.backgroundImage}
-        src={background.imageUrl}
-      />
-      <span className={styles.backgroundTitle}>{background.title}</span>
-      <span className={styles.backgroundDescription}>
-        {background.description}
-      </span>
-    </article>
+function jobForSlot(
+  jobs: readonly PendingJob[],
+  slotId: string,
+): PendingJob | undefined {
+  const running = jobs.find(
+    (job) => job.slotId === slotId && job.error === null,
   );
-}
-
-interface CharacterSetupProps {
-  entry: DungeonCharacter;
-}
-
-/**
- * One character and the cards created for them.
- * @param entry - Character portraits grouped with their cards
- */
-function CharacterSetup({ entry }: CharacterSetupProps) {
-  return (
-    <article className={styles.dungeonCharacter}>
-      <CharacterPreview character={entry.character} />
-      <div className={styles.playableCardGrid}>
-        {entry.cards.map((card) => (
-          <CardPreview card={card} key={card.cardId} />
-        ))}
-      </div>
-    </article>
-  );
-}
-
-interface CharacterPreviewProps {
-  character: CardCharacterSetAsset;
-}
-
-/**
- * Four portraits for one dungeon character.
- * @param character - Stored character set
- */
-function CharacterPreview({ character }: CharacterPreviewProps) {
-  return (
-    <div className={clsx(styles.cardSet, styles.dungeonStatic)}>
-      <span className={styles.cardSetPrompt}>{character.prompt}</span>
-      <span className={styles.cardSetTheme}>{character.theme}</span>
-      <div className={styles.cardLevelRow}>
-        {character.levels.map((level) => (
-          <div className={styles.cardLevel} key={level.level}>
-            <div className={styles.cardPortraitFrame}>
-              {/* biome-ignore lint/performance/noImgElement: generated backend asset */}
-              <img
-                alt={`${level.title}, level ${level.level}`}
-                className={styles.cardPortrait}
-                src={level.url}
-              />
-            </div>
-            <span className={styles.cardLevelIndex}>Level {level.level}</span>
-            <span className={styles.cardLevelTitle}>{level.title}</span>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-interface CardPreviewProps {
-  card: PlayableCardAsset;
-}
-
-/**
- * One playable card created for a dungeon character.
- * @param card - Stored card
- */
-function CardPreview({ card }: CardPreviewProps) {
-  return (
-    <article className={clsx(styles.playableCard, styles.dungeonStatic)}>
-      {/* biome-ignore lint/performance/noImgElement: generated backend asset */}
-      <img
-        alt={card.name}
-        className={styles.playableCardArt}
-        src={card.imageUrl}
-      />
-      <span className={styles.playableCardBody}>
-        <span className={styles.playableCardHeader}>
-          <span className={styles.playableCardName}>{card.name}</span>
-          <span className={styles.playableCardCost}>{formatCost(card)}</span>
-        </span>
-        <span className={styles.playableCardKind}>
-          {KIND_LABELS[card.kind]}
-        </span>
-        {card.effects.map((effect) => (
-          <span className={styles.playableCardEffect} key={effect.kind}>
-            {effect.text}
-          </span>
-        ))}
-        <span className={styles.playableCardDescription}>
-          {card.description}
-        </span>
-      </span>
-    </article>
-  );
-}
-
-/**
- * @param value - Value retained from a generate call
- * @returns The dungeon setup when the payload has the expected shape
- */
-function readDungeonGeneration(value: unknown): DungeonGeneration | undefined {
-  if (typeof value !== "object" || value === null) {
-    return undefined;
+  if (running !== undefined) {
+    return running;
   }
-  if (
-    !("backgrounds" in value) ||
-    !("characters" in value) ||
-    !("summary" in value)
-  ) {
-    return undefined;
-  }
-
-  const candidate = value as DungeonGeneration;
-  if (
-    !Array.isArray(candidate.backgrounds) ||
-    !Array.isArray(candidate.characters) ||
-    typeof candidate.summary !== "string"
-  ) {
-    return undefined;
-  }
-  return candidate;
-}
-
-/**
- * @param dungeon - Generated setup
- * @param index - Position among this session's results
- * @returns A stable key when the setup contains a stored asset id
- */
-function dungeonKey(dungeon: DungeonGeneration, index: number): string {
-  const backgroundId = dungeon.backgrounds[0]?.id;
-  const characterId = dungeon.characters[0]?.character.setId;
-  return backgroundId ?? characterId ?? `dungeon-${index}`;
-}
-
-/**
- * @param card - Card whose Aether cost is shown
- * @returns Cost label, singular when the card costs 1
- */
-function formatCost(card: PlayableCardAsset): string {
-  if (card.aetherCost === 1) {
-    return "1 Aether";
-  }
-  return `${card.aetherCost} Aether`;
+  return jobs.find((job) => job.slotId === slotId);
 }

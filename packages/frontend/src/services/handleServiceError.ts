@@ -26,11 +26,33 @@ function ScrollableToastBody({ message }: { message: string }) {
       style: {
         maxHeight: `${MAX_TOAST_HEIGHT_PX}px`,
         overflowY: "auto" as const,
+        userSelect: "text" as const,
         whiteSpace: "pre-wrap" as const,
         wordBreak: "break-word" as const,
       },
     },
-    message,
+    React.createElement("div", null, message),
+    React.createElement(
+      "button",
+      {
+        onClick: (event: React.MouseEvent<HTMLButtonElement>) => {
+          event.stopPropagation();
+          void navigator.clipboard.writeText(message);
+        },
+        style: {
+          background: "transparent",
+          border: "1px solid currentColor",
+          borderRadius: "6px",
+          color: "inherit",
+          cursor: "pointer",
+          font: "inherit",
+          marginTop: "8px",
+          padding: "4px 10px",
+        },
+        type: "button",
+      },
+      "Copy error",
+    ),
   );
 }
 
@@ -47,7 +69,11 @@ export async function handleServiceError<T>(
 
     if (!shouldSuppressToast) {
       const text = `Something went wrong: ${finalResponse.message}`;
-      toast.error(React.createElement(ScrollableToastBody, { message: text }));
+      toast.error(React.createElement(ScrollableToastBody, { message: text }), {
+        autoClose: false,
+        closeOnClick: false,
+        draggable: false,
+      });
     }
 
     return undefined;

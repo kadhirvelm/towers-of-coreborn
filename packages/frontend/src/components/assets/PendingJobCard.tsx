@@ -3,6 +3,7 @@
 import clsx from "clsx";
 import styles from "./Assets.module.scss";
 import type { PendingJob } from "./assetGenerationJobs";
+import { CopyableError } from "./CopyableError";
 
 export type { PendingJob } from "./assetGenerationJobs";
 
@@ -29,7 +30,7 @@ export function PendingJobCard({
       <div className={clsx(styles.pendingCard, styles.pendingCardFailed)}>
         <span className={styles.pendingStatusLabel}>Failed</span>
         <span className={styles.pendingPrompt}>{job.prompt}</span>
-        <span className={styles.pendingErrorMsg}>{job.error}</span>
+        <CopyableError message={job.error} />
         <button
           className={styles.pendingDismiss}
           onClick={onDismiss}

@@ -17,6 +17,30 @@
   border: 1px solid vars.$danger-light;
   border-radius: 6px;
   color: vars.$danger;
-  max-width: 280px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-width: 320px;
   padding: 6px 8px;
+}
+
+.errorText {
+  font-family: monospace;
+  font-size: 12px;
+  line-height: 1.4;
+  margin: 0;
+  overflow-wrap: anywhere;
+  user-select: text;
+  white-space: pre-wrap;
+}
+
+.errorCopy {
+  align-self: flex-start;
+  background: transparent;
+  border: 1px solid vars.$danger-light;
+  border-radius: 6px;
+  color: vars.$danger;
+  cursor: pointer;
+  font-size: 11px;
+  padding: 3px 8px;
 }

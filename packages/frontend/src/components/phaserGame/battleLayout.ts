@@ -18,7 +18,7 @@ export const PLACEHOLDER_ACTORS = [
 
 /** Opening hand from `battleLoadout.ts`, left to right. */
 export const PLACEHOLDER_HAND = BATTLE_LOADOUT.cards.map(
-  (card) => card.fallbackName,
+  (card) => card.rules.name,
 );
 
 export type ActorSide = (typeof PLACEHOLDER_ACTORS)[number]["side"];
@@ -70,13 +70,26 @@ export type BattleLayout = {
   cards: CardSlot[];
 };
 
+/** Live hit points and hand labels passed into `layoutBattle`. */
+export interface BattleLayoutSnapshot {
+  enemyHitPoints: number;
+  hand: readonly string[];
+  playerHitPoints: number;
+}
+
 /**
  * Places the party on the left, the enemy on the right, and the hand along the bottom.
  * @param width - Battle view width in pixels
  * @param height - Battle view height in pixels
+ * @param snapshot - Current hit points and hand. Defaults to the opening loadout
  * @returns Actor and card slots for the current view size
  */
-export function layoutBattle(width: number, height: number): BattleLayout {
+export function layoutBattle(
+  width: number,
+  height: number,
+  snapshot?: BattleLayoutSnapshot,
+): BattleLayout {
+  const hand = snapshot?.hand ?? PLACEHOLDER_HAND;
   const safeWidth = Math.max(width, 1);
   const safeHeight = Math.max(height, 1);
   const fieldY = safeHeight * 0.4;
@@ -90,14 +103,13 @@ export function layoutBattle(width: number, height: number): BattleLayout {
   const cardHeight = Math.min(preferredWidth * 1.45, maxCardHeight);
   const cardWidth = cardHeight / 1.45;
   const gap = Math.max(12, cardWidth * 0.14);
-  const handSpan =
-    PLACEHOLDER_HAND.length * cardWidth + (PLACEHOLDER_HAND.length - 1) * gap;
+  const handSpan = hand.length * cardWidth + Math.max(0, hand.length - 1) * gap;
   const firstCenterX = (safeWidth - handSpan) / 2 + cardWidth / 2;
   const cardY = safeHeight - bottomMargin - cardHeight / 2;
 
   return {
     actors: PLACEHOLDER_ACTORS.map((actor) => ({
-      hitPoints: actor.hitPoints,
+      hitPoints: hitPointsFor(actor.side, actor.hitPoints, snapshot),
       label: actor.label,
       maxHitPoints: actor.maxHitPoints,
       radius,
@@ -105,7 +117,7 @@ export function layoutBattle(width: number, height: number): BattleLayout {
       x: actor.side === "player" ? safeWidth * 0.22 : safeWidth * 0.78,
       y: fieldY,
     })),
-    cards: PLACEHOLDER_HAND.map((label, index) => ({
+    cards: hand.map((label, index) => ({
       height: cardHeight,
       index,
       label,
@@ -114,6 +126,26 @@ export function layoutBattle(width: number, height: number): BattleLayout {
       y: cardY,
     })),
   };
+}
+
+/**
+ * @param side - Which combatant
+ * @param fallback - Hit points from the loadout
+ * @param snapshot - Live hit points, when the battle has started
+ * @returns The hit points to draw
+ */
+function hitPointsFor(
+  side: ActorSide,
+  fallback: number,
+  snapshot: BattleLayoutSnapshot | undefined,
+): number {
+  if (snapshot === undefined) {
+    return fallback;
+  }
+  if (side === "player") {
+    return snapshot.playerHitPoints;
+  }
+  return snapshot.enemyHitPoints;
 }
 
 const HEALTH_BAR_HEIGHT = 20;

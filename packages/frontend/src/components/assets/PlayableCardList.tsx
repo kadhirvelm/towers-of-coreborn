@@ -8,6 +8,7 @@ import type {
 import { useState } from "react";
 import { Dialog, Flex } from "@/lib/radix";
 import styles from "./Assets.module.scss";
+import { CopyableError } from "./CopyableError";
 import { type PendingJob, PendingJobCard } from "./PendingJobCard";
 
 interface PlayableCardListProps {
@@ -63,7 +64,7 @@ export function PlayableCardList({
           <span className={styles.loadingText}>Loading cards…</span>
         </Flex>
       )}
-      {error != null && <span className={styles.errorText}>{error}</span>}
+      {error != null && <CopyableError message={error} />}
       {!isLoading && !hasPending && result != null && cards.length === 0 && (
         <Flex className={styles.emptyState}>
           <span>No playable cards yet</span>

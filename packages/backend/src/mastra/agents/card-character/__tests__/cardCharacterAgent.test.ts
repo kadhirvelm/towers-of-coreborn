@@ -30,6 +30,7 @@ describe("CardCharacterAgent", () => {
       async (input: {
         instructions: string;
         maxSteps?: number;
+        supportingToolIds?: string[];
         toolId: string;
         tools: unknown;
       }) => {
@@ -39,6 +40,9 @@ describe("CardCharacterAgent", () => {
           "consult-productnow",
         );
         expect(input.maxSteps).toBe(4);
+        expect(input.supportingToolIds).toEqual([
+          CardCharacterAgentTool.ConsultProductNow,
+        ]);
         expect(input.instructions).toContain("`consult-productnow`");
         expect(input.instructions).toContain(
           "`ff1b04a0-b440-4746-9a1a-cd25fba0c32b`",
@@ -191,12 +195,10 @@ function imageSet(filePath: string) {
 /**
  * @returns An abort coordinator that never stops a run
  */
-function idleAbort(): Pick<GenerationAbortCoordinator, "begin" | "stop"> {
+function idleAbort(): Pick<GenerationAbortCoordinator, "run" | "stop"> {
   return {
-    begin: async () => ({
-      end: async () => undefined,
-      signal: new AbortController().signal,
-    }),
+    run: async (_generationId, operation) =>
+      operation(new AbortController().signal),
     stop: async () => true,
   };
 }

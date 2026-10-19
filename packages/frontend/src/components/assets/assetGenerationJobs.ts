@@ -1,10 +1,20 @@
-import { isGenerationCancelled, isServiceError } from "@towers-of-coreborn/api";
+import {
+  DUNGEON_ASSET_CLASS_ID,
+  DUNGEON_SLOT_ASSET_CLASS_ID,
+  type DungeonInFlightJob,
+  isGenerationCancelled,
+  isServiceError,
+} from "@towers-of-coreborn/api";
 
 /** A generation request that is still running, or that failed and has not been dismissed. */
 export interface PendingJob {
+  /** Set when this run fills a dungeon slot */
+  dungeonId?: string;
   error: string | null;
   id: string;
   prompt: string;
+  /** Set when this run fills a dungeon slot */
+  slotId?: string;
   /** True after the user asks this run to stop, until it settles */
   stopping: boolean;
 }
@@ -12,6 +22,11 @@ export interface PendingJob {
 /** A pending job tagged with the asset class that owns it. */
 interface AssetGenerationJob extends PendingJob {
   assetClassId: string;
+  /**
+   * True for a dungeon slot run started in this page until Redis has recorded it.
+   * A refresh must not drop the job before that record exists.
+   */
+  awaitingServer?: boolean;
 }
 
 /** In-flight jobs, gallery refresh counts, and results kept for this session. */
@@ -37,20 +52,36 @@ export function createAssetGenerationJobState(): AssetGenerationJobState {
  */
 export function startAssetGenerationJob(
   state: AssetGenerationJobState,
-  job: { assetClassId: string; id: string; prompt: string },
+  job: {
+    assetClassId: string;
+    /** True until Redis has the dungeon slot run */
+    awaitingServer?: boolean;
+    dungeonId?: string;
+    id: string;
+    prompt: string;
+    slotId?: string;
+  },
 ): AssetGenerationJobState {
+  const next: AssetGenerationJob = {
+    assetClassId: job.assetClassId,
+    error: null,
+    id: job.id,
+    prompt: job.prompt,
+    stopping: false,
+  };
+  if (job.awaitingServer !== undefined) {
+    next.awaitingServer = job.awaitingServer;
+  }
+  if (job.dungeonId !== undefined) {
+    next.dungeonId = job.dungeonId;
+  }
+  if (job.slotId !== undefined) {
+    next.slotId = job.slotId;
+  }
+
   return {
     ...state,
-    jobs: [
-      ...state.jobs,
-      {
-        assetClassId: job.assetClassId,
-        error: null,
-        id: job.id,
-        prompt: job.prompt,
-        stopping: false,
-      },
-    ],
+    jobs: [...state.jobs, next],
   };
 }
 
@@ -165,17 +196,26 @@ export function applyGenerationResult(
   },
 ): AssetGenerationJobState {
   if (isGenerationCancelled(input.result)) {
-    return dismissAssetGenerationJob(state, input.jobId);
+    return refreshAssetClasses(
+      dismissAssetGenerationJob(state, input.jobId),
+      input.refreshClassIds ?? [],
+    );
   }
   if (isServiceError(input.result)) {
     const job = state.jobs.find((entry) => entry.id === input.jobId);
     if (job?.stopping === true) {
-      return dismissAssetGenerationJob(state, input.jobId);
+      return refreshAssetClasses(
+        dismissAssetGenerationJob(state, input.jobId),
+        input.refreshClassIds ?? [],
+      );
     }
-    return failAssetGenerationJob(
-      state,
-      input.jobId,
-      input.errorMessage(input.result),
+    return refreshAssetClasses(
+      failAssetGenerationJob(
+        state,
+        input.jobId,
+        input.errorMessage(input.result),
+      ),
+      input.refreshClassIds ?? [],
     );
   }
 
@@ -258,12 +298,96 @@ function rememberGenerationResult(
 }
 
 /**
- * Asks additional galleries to refetch.
+ * Matches the workshop's running jobs to Redis.
+ * Jobs started on this page stay up until Redis has seen them. Jobs that
+ * Redis no longer lists are finished, and their galleries refetch.
+ * @param state - Current jobs
+ * @param remoteJobs - Runs Redis still has
+ * @returns State with restored, acknowledged, or finished dungeon slot runs
+ */
+export function reconcileInFlightJobs(
+  state: AssetGenerationJobState,
+  remoteJobs: readonly DungeonInFlightJob[],
+): AssetGenerationJobState {
+  const remoteIds = new Set(remoteJobs.map((job) => job.generationId));
+  let next = state;
+  let changed = false;
+
+  for (const remote of remoteJobs) {
+    const existing = next.jobs.find((job) => job.id === remote.generationId);
+    if (existing === undefined) {
+      next = startAssetGenerationJob(next, {
+        assetClassId: DUNGEON_SLOT_ASSET_CLASS_ID[remote.kind],
+        awaitingServer: false,
+        dungeonId: remote.dungeonId,
+        id: remote.generationId,
+        prompt: remote.prompt,
+        slotId: remote.slotId,
+      });
+      changed = true;
+      continue;
+    }
+    if (existing.awaitingServer === true) {
+      next = acknowledgeServerJob(next, existing.id);
+      changed = true;
+    }
+  }
+
+  const finishedIds = next.jobs
+    .filter(
+      (job) =>
+        job.dungeonId !== undefined &&
+        job.error === null &&
+        job.awaitingServer !== true &&
+        !remoteIds.has(job.id),
+    )
+    .map((job) => job.id);
+  if (finishedIds.length > 0) {
+    for (const jobId of finishedIds) {
+      next = completeAssetGenerationJob(next, jobId);
+    }
+    next = refreshAssetClasses(next, [DUNGEON_ASSET_CLASS_ID]);
+    changed = true;
+  }
+
+  if (!changed) {
+    return state;
+  }
+  return next;
+}
+
+/**
+ * @param state - Current jobs
+ * @returns Jobs that fill a dungeon slot, including ones shown on another tab
+ */
+export function dungeonSlotJobs(state: AssetGenerationJobState): PendingJob[] {
+  return state.jobs.filter((job) => job.slotId !== undefined);
+}
+
+/**
+ * @param state - Current jobs
+ * @param jobId - Dungeon slot run Redis has recorded
+ * @returns State that will drop this job once Redis no longer lists it
+ */
+function acknowledgeServerJob(
+  state: AssetGenerationJobState,
+  jobId: string,
+): AssetGenerationJobState {
+  return {
+    ...state,
+    jobs: state.jobs.map((job) =>
+      job.id === jobId ? { ...job, awaitingServer: false } : job,
+    ),
+  };
+}
+
+/**
+ * Asks galleries to refetch.
  * @param state - Current jobs
  * @param assetClassIds - Classes whose stored assets may have changed
  * @returns State with those refresh keys incremented
  */
-function refreshAssetClasses(
+export function refreshAssetClasses(
   state: AssetGenerationJobState,
   assetClassIds: readonly string[],
 ): AssetGenerationJobState {

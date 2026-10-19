@@ -40,6 +40,7 @@ describe("parsePlayableCardManifest", () => {
         { amount: 6, kind: "attack", text: "Deal 6 damage to one enemy." },
         {
           amount: 2,
+          chainsFrom: "attack",
           kind: "combo",
           text: "If you played an attack, deal 2 more.",
         },
@@ -78,6 +79,13 @@ describe("parsePlayableCardManifest", () => {
       parsePlayableCardManifest({
         aetherCost: 1,
         effects: [{ amount: 4, text: "Deal 4." }],
+        name: "Strike",
+      }),
+    ).toBeUndefined();
+    expect(
+      parsePlayableCardManifest({
+        aetherCost: 1,
+        effects: [{ amount: 4, kind: "poison", text: "Apply poison." }],
         name: "Strike",
       }),
     ).toBeUndefined();
